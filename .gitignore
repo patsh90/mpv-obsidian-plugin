@@ -21,3 +21,11 @@ data.json
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
 dist
+*.lockb
+bun.lockb
+/src/util/AsyncQueue.js
+/src/util/createNotice.js
+/src/Interfaces.js
+/src/SettingManager.js
+/src/SettingsSchemas.js
+/src/util/State.js

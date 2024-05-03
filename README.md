@@ -1,24 +1,31 @@
-## Obsidian Sample Plugin (Yomaru)
+# MPV Links Plugin for Obsidian
 
-- ✅ husky
-- ✅ bun
-- ✅ bun github release workflow
-- ✅ extended obsidian typescript api
+This plugin adds buttons linking to local video files. Clicking a button opens the specified video at a saved timestamp.
 
-## How to start?
+## How to install
 
-you can click the "use this template" button on Github. Or clone it yourself:
+1. You need to have already installed mpv. Check https://mpv.io/installation/
+2. Unzip the most recent release into your <vault>/.obsidian/plugins/ folder.
 
-1. git clone this project
-2. remove the remote origin: `git remote remove origin`
-3. remove the tag : `git tag -d <tag_name>`
+## How to use this plugin?
 
-Then change the basic info in your plugin. Open your vault and you should see the info has been updated.
+1. Open the command palette (type `CMD + P` on Mac or its equivalent on other platforms).
+2. Start typing the name of one of the actions. See below:
 
-### Prerequisite
+| Action       | Hotkey          |
+|--------------|-----------------|
+| Add mpv link | None by default |
 
-you need to install `bun` in your system to use this template.
+## How this works? Video demonstration
 
-## How to release?
 
-run `bun release`
+
+https://github.com/patsh90/mpv-obsidian-plugin/assets/96721578/09bb5840-f4f0-44c3-8f73-c699ef1a952b
+
+
+
+## Credits
+
+Many thanks to
+Yomaru Hananoshika for publishing ready made skeleton for developing
+plugins https://github.com/TopTierTools/obsidian-sample-plugin

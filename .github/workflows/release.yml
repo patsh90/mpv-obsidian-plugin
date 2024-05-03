@@ -10,24 +10,31 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v3
+            -   uses: actions/checkout@v3
 
-            - uses: oven-sh/setup-bun@v1
-              with:
-                  bun-version: latest
+            -   uses: oven-sh/setup-bun@v1
+                with:
+                    bun-version: latest
 
-            - name: Build plugin
-              run: |
-                  bun install 
-                  bun run build
+            -   name: Build plugin
+                run: |
+                    bun install 
+                    bun run build
 
-            - name: Create release
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  tag="${GITHUB_REF#refs/tags/}"
 
-                  gh release create "$tag" \
-                    --title="$tag" \
-                    --draft \
-                    main.js manifest.json styles.css
+            -   name: Zip files
+                run: |
+                    tag="${GITHUB_REF#refs/tags/}"
+                    zip "release_${tag}.zip" release.zip main.js manifest.json styles.css
+        
+
+            -   name: Create release
+                env:
+                    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                run: |
+                    tag="${GITHUB_REF#refs/tags/}"
+                    
+                    gh release create "$tag" \
+                      --title="$tag" \
+                      --draft \
+                      main.js manifest.json styles.css "release_${tag}.zip"

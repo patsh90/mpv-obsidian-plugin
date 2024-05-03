@@ -1,7 +1,7 @@
 {
-  "name": "obsidian-sample-plugin",
-  "version": "1.0.0",
-  "description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+  "name": "mpv-links",
+  "version": "1.0.1",
+  "description": "Obsidian plugin for adding mpv links to video files",
   "main": "main.js",
   "scripts": {
     "dev": "bun esbuild.config.mjs",
