@@ -9,9 +9,9 @@ import "@total-typescript/ts-reset/dom";
 const MPV_CODE_BLOCK_START: string = "mpv_link";
 const DEFAULT_TIMESTAMP = "00:00:00";
 const BUTTON_LINK_ATTR = "link";
-const LOGINFO: boolean = true;
+const LOGINFO: boolean = false;
 
-function log(msg: any) {
+function log(msg: string | number | object) {
 	if (LOGINFO) {
 		console.log(msg);
 	}
@@ -27,9 +27,7 @@ export class ErrorModal extends Modal {
 
 	onOpen() {
 		const {contentEl} = this;
-		const messageEl = contentEl.createEl("p", {text: this.message});
-		messageEl.style.color = "red";
-		messageEl.style.fontWeight = "bold";
+		const messageEl = contentEl.createEl("p", {text: this.message, cls: "error-message"});
 	}
 
 	onClose() {
@@ -210,6 +208,7 @@ export default class MpvLinksPlugin extends Plugin {
 	startDir = (this.app.vault.adapter as any).basePath;
 
 	async onload() {
+
 		this.registerMarkdownCodeBlockProcessor(MPV_CODE_BLOCK_START, (source, el) => {
 			const body = el.createEl("body");
 			createButtonsFromMarkdown(source, body);
