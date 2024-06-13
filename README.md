@@ -1,4 +1,4 @@
-# MPV Links Plugin for Obsidian
+# mpv Links Plugin for Obsidian
 
 This plugin adds buttons linking to local video files. Clicking a button opens the specified video at a saved timestamp.
 

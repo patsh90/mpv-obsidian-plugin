@@ -1,6 +1,6 @@
 {
 	"id": "mpv-links",
-	"name": "Mpv links",
+	"name": "mpv links",
 	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
 	"description": "Add mpv links with timestamps",

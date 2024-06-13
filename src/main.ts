@@ -27,7 +27,7 @@ export class ErrorModal extends Modal {
 
 	onOpen() {
 		const {contentEl} = this;
-		const messageEl = contentEl.createEl("p", {text: this.message, cls: "error-message"});
+		contentEl.createEl("p", {text: this.message, cls: "error-message"});
 	}
 
 	onClose() {
@@ -165,7 +165,7 @@ function formatFilepathToVideoLink(filePath: string): string {
 
 import {App, Modal} from "obsidian";
 
-const {dialog} = require('electron').remote;
+import { dialog } from '@electron/remote';
 
 export class FileSelectModal extends Modal {
 	onSelect: (filePaths: string[]) => void;
@@ -179,7 +179,7 @@ export class FileSelectModal extends Modal {
 
 	async onOpen() {
 		const result = await dialog.showOpenDialog({
-			title: "Select Video Files",
+			title: "Select video files",
 			defaultPath: this.startDirectory,
 			properties: ["openFile", "multiSelections"],
 			filters: [{name: 'Videos', extensions: ['mp4', 'mkv', 'avi', 'mov']}, {

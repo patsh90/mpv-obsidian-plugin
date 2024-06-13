@@ -15,8 +15,8 @@
 		"noUncheckedIndexedAccess": true,
 		"skipLibCheck": true,
 		"lib": ["DOM", "ES5", "ES6", "ES7", "ESNext"],
-		"types": ["bun-types", "obsidian"],
-		"typeRoots": ["./src/typings"],
+		"types": ["bun-types", "obsidian", "node"],
+		"typeRoots": ["./src/typings", "node_modules/@types"],
 		"paths": {
 			"@/*": ["./src/*"]
 		}
