@@ -30,3 +30,4 @@ bun.lockb
 /src/SettingsSchemas.js
 /src/util/State.js
 bun.lockb
+release_*.zip

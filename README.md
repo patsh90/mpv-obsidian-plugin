@@ -7,6 +7,18 @@ This plugin adds buttons linking to local video files. Clicking a button opens t
 1. You need to have already installed mpv. Check https://mpv.io/installation/
 2. Unzip the most recent release into your <vault>/.obsidian/plugins/ folder.
 
+## Development
+
+### Local Build
+
+To build and package the plugin locally:
+
+```bash
+bun run build-local
+```
+
+This will create a zip file named `release_TIMESTAMP.zip` containing the necessary files for the plugin.
+
 ## How to use this plugin?
 
 1. Open the command palette (type `CMD + P` on Mac or its equivalent on other platforms).

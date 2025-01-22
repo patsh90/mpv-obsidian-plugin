@@ -12,23 +12,36 @@ const MPV_CODE_BLOCK_START: string = "mpv_link";
 const DEFAULT_TIMESTAMP = "00:00:00";
 const BUTTON_LINK_ATTR = "link";
 export const LOGINFO: boolean = true;
-const VIDEO_LINK_REGEX = /\[\[\d*#video:.*?#\d\d:\d\d:\d\d#?]]/g;
+// Fix: Updated regex to properly match both formats of timestamps
+// Format can be either [[id#video:path#timestamp]] or [[id#video:path#timestamp#]] for fixed
+const VIDEO_LINK_REGEX = /\[\[\d*#video:.*?#\d\d:\d\d:\d\d(?:#)?]]/g;
 
 
 import { exec } from 'child_process';
 
 
 
-// Function to extract the last timestamp from MPV output
-function extractLastTimestamp(stdout: string): string {
+/**
+ * Extracts the last timestamp from MPV player's stdout output
+ * @param stdout - The standard output from the MPV process
+ * @returns The extracted timestamp in format HH:MM:SS or default timestamp if not found
+ */
+export function extractLastTimestamp(stdout: string): string {
 	const timeRegex = /\[ (\d{2}:\d{2}:\d{2}) ]/;
 	const match = stdout.match(timeRegex);
 	return match?.[1] ?? DEFAULT_TIMESTAMP;
 }
 
-function getStartTimestamp(button: HTMLButtonElement): string {
+/**
+ * Extracts the timestamp from a video button's text
+ * @param button - The HTML button element containing video link information
+ * @returns The timestamp in format HH:MM:SS with any # characters removed
+ */
+export function getStartTimestamp(button: HTMLButtonElement): string {
 	log({ input: button.innerText });
-	return button.innerText.split("/")[1]?.replace("#", "") ?? DEFAULT_TIMESTAMP;
+	// The button text timestamp may have multiple # characters
+	// We need to remove all # characters to get the actual timestamp
+	return button.innerText.split("/")[1]?.replace(/#/g, "") ?? DEFAULT_TIMESTAMP;
 }
 
 import { getLuaScriptPath, log } from "./utils";
@@ -68,23 +81,42 @@ async function updateTimestampInMarkdown(button: HTMLButtonElement, mpvStdout: s
 
 	const activeFileContent = await this.app.vault.read(file);
 	const originalLink = button.getAttribute(BUTTON_LINK_ATTR);
-	if (!originalLink || isLinkFixed(originalLink)) return;
+
+	if (!originalLink || isLinkFixed(originalLink)) {
+		// Don't update fixed timestamps
+		log("Timestamp is fixed, not updating");
+		return;
+	}
 
 	const startTimestamp = getStartTimestamp(button);
-	const newLink = originalLink.replace(startTimestamp, newTimestamp);
+	// Fix: The replace should account for potential # marks in button text
+	const cleanStartTimestamp = startTimestamp.replace(/#/g, "");
+	const newLink = originalLink.replace(cleanStartTimestamp, newTimestamp);
 	const newMarkdown = activeFileContent.replace(originalLink, newLink);
 
 	await this.app.vault.modify(file, newMarkdown);
 	log(mpvStdout);
 }
 
-function extractDetails(input: string): { filepath: string; timestamp: string } {
-	const videoLinkRegex = /\[\[\d+#video:(.+?)#(.+?)]]/;
+/**
+ * Extracts video details from a formatted video link string
+ * @param input - The video link string in format [[id#video:path#timestamp(#)]]
+ * @returns Object containing filepath, timestamp, and isFixed flag
+ */
+export function extractDetails(input: string): { filepath: string; timestamp: string; isFixed: boolean } {
+	// Updated regex to properly capture filepath and timestamp, including fixed timestamps
+	// Format can be either [[id#video:path#timestamp]] or [[id#video:path#timestamp#]] for fixed
+	const videoLinkRegex = /\[\[\d+#video:(.+?)#(.+?)(#)?]]/;
 	const match = input.match(videoLinkRegex);
 
 	return match && match[1] && match[2]
-		? { filepath: match[1], timestamp: match[2] }
-		: { filepath: "/", timestamp: DEFAULT_TIMESTAMP };
+		? { 
+			filepath: match[1], 
+			timestamp: match[2],
+			// If match[3] exists, it means there was an extra # marking a fixed timestamp
+			isFixed: !!match[3]  
+		}
+		: { filepath: "/", timestamp: DEFAULT_TIMESTAMP, isFixed: false };
 }
 
 
@@ -100,6 +132,7 @@ function createButtonsFromMarkdown(markdown: string, container: HTMLElement): vo
 interface VideoLinkDetails {
 	filepath: string;
 	timestamp: string;
+	isFixed: boolean; // Added to track if this is a fixed timestamp
 }
 
 import * as path from 'path';
@@ -109,13 +142,20 @@ function createVideoButton(details: VideoLinkDetails, videoLink: string): HTMLBu
 	const fileName = path.basename(details.filepath);
 
 	button.setAttribute(BUTTON_LINK_ATTR, videoLink);
-	button.textContent = `${fileName}/${details.timestamp}`;
+	// Fix: Modify button text to show # around timestamp if it's fixed
+	const displayTimestamp = details.isFixed ? `#${details.timestamp}#` : details.timestamp;
+	button.textContent = `${fileName}/${displayTimestamp}`;
 	button.onclick = () => openVideoAtTime(details.filepath, button);
 
 	return button;
 }
 
-function formatFilepathToVideoLink(filePath: string): string {
+/**
+ * Formats a file path into a properly formatted video link markdown code block
+ * @param filePath - The path to the video file
+ * @returns Formatted markdown code block with video link
+ */
+export function formatFilepathToVideoLink(filePath: string): string {
 	const uniqueId = Date.now().toString();
 	return `\n\`\`\` ${MPV_CODE_BLOCK_START} \n[[${uniqueId}#video:${filePath}#${DEFAULT_TIMESTAMP}]]\n\`\`\``;
 }
@@ -150,7 +190,15 @@ export default class MpvLinksPlugin extends Plugin {
 		});
 	}
 }
-function isLinkFixed(originalLink: string): boolean {
-	const lastCharacter = originalLink.charAt(originalLink.length - 2);
-	return lastCharacter === '#';
+/**
+ * Determines if a video link has a fixed timestamp
+ * Fixed timestamps are marked with an extra # at the end and won't be updated
+ * @param originalLink - The video link string to check
+ * @returns Boolean indicating if the timestamp is fixed
+ */
+export function isLinkFixed(originalLink: string): boolean {
+	// Check if the timestamp format has # at the end (fixed timestamp)
+	// Format is like [[id#video:path#timestamp#]] where the last # makes it fixed
+	const timestampEndRegex = /#\d\d:\d\d:\d\d#/;
+	return timestampEndRegex.test(originalLink);
 }
