@@ -29,3 +29,5 @@ bun.lockb
 /src/SettingManager.js
 /src/SettingsSchemas.js
 /src/util/State.js
+bun.lockb
+release_*.zip
