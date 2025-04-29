@@ -11,3 +11,12 @@ If your plugin does not need CSS, delete this file.
 	color: red;
 	font-weight: bold;
 }
+
+/* Styling for selected MPV link */
+.mpv-selected-link {
+	border: 2px solid var(--interactive-accent);
+	background-color: var(--interactive-accent-hover);
+	box-shadow: 0 0 4px var(--interactive-accent);
+	transform: scale(1.05);
+	transition: all 0.2s ease;
+}

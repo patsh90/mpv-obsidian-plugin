@@ -165,14 +165,39 @@ export function formatFilepathToVideoLink(filePath: string): string {
 // Plugin definition
 export default class MpvLinksPlugin extends Plugin {
 	startDir = (this.app.vault.adapter as any).basePath;
+	
+	// Track currently selected link
+	private selectedLinkIndex: number = -1;
+	private mpvButtons: HTMLButtonElement[] = [];
+	private containers: HTMLElement[] = [];
 
 	async onload() {
 
 		this.registerMarkdownCodeBlockProcessor(MPV_CODE_BLOCK_START, (source, el) => {
 			const body = el.createEl("body");
 			createButtonsFromMarkdown(source, body);
+			
+			// Store container for navigation
+			this.containers.push(body);
+			
+			// Make container focusable
+			body.setAttribute("tabindex", "0");
+			
+			// Add keyboard navigation
+			body.addEventListener("keydown", (evt: KeyboardEvent) => {
+				if (evt.key === "Enter") {
+					// Find the selected button in this container
+					const buttons = Array.from(body.querySelectorAll("button")) as HTMLButtonElement[];
+					const activeButton = buttons.find(btn => btn.classList.contains("mpv-selected-link"));
+					if (activeButton) {
+						activeButton.click();
+						evt.preventDefault();
+					}
+				}
+			});
 		});
 
+		// Register commands
 		this.addCommand({
 			id: "add-mpv-link",
 			name: "Add mpv link",
@@ -185,9 +210,82 @@ export default class MpvLinksPlugin extends Plugin {
 					}
 				}
 				).open();
-
 			}
 		});
+		
+		// Command to navigate to next MPV link
+		this.addCommand({
+			id: "next-mpv-link",
+			name: "Go to next MPV link",
+			callback: () => this.navigateLinks(1)
+		});
+		
+		// Command to navigate to previous MPV link
+		this.addCommand({
+			id: "previous-mpv-link",
+			name: "Go to previous MPV link",
+			callback: () => this.navigateLinks(-1)
+		});
+		
+		// Command to open the currently selected link
+		this.addCommand({
+			id: "open-selected-mpv-link",
+			name: "Open selected MPV link",
+			callback: () => this.openSelectedLink()
+		});
+	}
+	
+	// Navigate between MPV links with direction (1 for next, -1 for previous)
+	navigateLinks(direction: number): void {
+		// Collect all buttons from all containers
+		this.updateButtonsList();
+		
+		if (this.mpvButtons.length === 0) return;
+		
+		// Clear previous selection
+		this.clearSelection();
+		
+		// Update selection index
+		if (this.selectedLinkIndex === -1) {
+			// If nothing selected, start at beginning or end based on direction
+			this.selectedLinkIndex = direction > 0 ? 0 : this.mpvButtons.length - 1;
+		} else {
+			// Move in specified direction
+			this.selectedLinkIndex = (this.selectedLinkIndex + direction + this.mpvButtons.length) % this.mpvButtons.length;
+		}
+		
+		// Apply selection styling to new button
+		const selectedButton = this.mpvButtons[this.selectedLinkIndex];
+		if (selectedButton) {
+			selectedButton.classList.add("mpv-selected-link");
+			selectedButton.scrollIntoView({ behavior: "smooth", block: "center" });
+		}
+	}
+	
+	// Update the list of all MPV buttons across all containers
+	updateButtonsList(): void {
+		this.mpvButtons = [];
+		this.containers.forEach(container => {
+			const buttons = Array.from(container.querySelectorAll("button")) as HTMLButtonElement[];
+			this.mpvButtons.push(...buttons);
+		});
+	}
+	
+	// Clear selection from all buttons
+	clearSelection(): void {
+		this.mpvButtons.forEach(button => {
+			button.classList.remove("mpv-selected-link");
+		});
+	}
+	
+	// Open the currently selected link
+	openSelectedLink(): void {
+		if (this.selectedLinkIndex >= 0 && this.selectedLinkIndex < this.mpvButtons.length) {
+			const selectedButton = this.mpvButtons[this.selectedLinkIndex];
+			if (selectedButton) {
+				selectedButton.click();
+			}
+		}
 	}
 }
 /**
