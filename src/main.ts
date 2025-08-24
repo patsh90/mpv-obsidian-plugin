@@ -174,20 +174,20 @@ export default class MpvLinksPlugin extends Plugin {
 	async onload() {
 
 		this.registerMarkdownCodeBlockProcessor(MPV_CODE_BLOCK_START, (source, el) => {
-			const body = el.createEl("body");
-			createButtonsFromMarkdown(source, body);
+			// const body = el.createEl("body");
+			createButtonsFromMarkdown(source, el);
 			
 			// Store container for navigation
-			this.containers.push(body);
+			this.containers.push(el);
 			
 			// Make container focusable
-			body.setAttribute("tabindex", "0");
+			el.setAttribute("tabindex", "0");
 			
 			// Add keyboard navigation
-			body.addEventListener("keydown", (evt: KeyboardEvent) => {
+			el.addEventListener("keydown", (evt: KeyboardEvent) => {
 				if (evt.key === "Enter") {
 					// Find the selected button in this container
-					const buttons = Array.from(body.querySelectorAll("button")) as HTMLButtonElement[];
+					const buttons = Array.from(el.querySelectorAll("button")) as HTMLButtonElement[];
 					const activeButton = buttons.find(btn => btn.classList.contains("mpv-selected-link"));
 					if (activeButton) {
 						activeButton.click();
