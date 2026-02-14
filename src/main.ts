@@ -2,35 +2,40 @@ import {
 	Editor,
 	MarkdownView,
 	Plugin,
+	PluginSettingTab,
+	App,
+	Setting,
 } from "obsidian";
 import "@total-typescript/ts-reset";
 import "@total-typescript/ts-reset/dom";
-import { ErrorModal } from "./modals/ErrorModal";
-import { FileSelectModal } from "./modals/FileSelectModal";
+import * as fs from 'fs';
+import * as path from 'path';
+import { execFile } from 'child_process';
 
-const MPV_CODE_BLOCK_START: string = "mpv_link";
-const DEFAULT_TIMESTAMP = "00:00:00";
-const BUTTON_LINK_ATTR = "link";
-export const LOGINFO: boolean = true;
-// Fix: Updated regex to properly match both formats of timestamps
-// Format can be either [[id#video:path#timestamp]] or [[id#video:path#timestamp#]] for fixed
-const VIDEO_LINK_REGEX = /\[\[\d*#video:.*?#\d\d:\d\d:\d\d(?:#)?]]/g;
+import { MessageModal } from "./modals/MessageModal";
+import { PathSelectModal } from "./modals/PathSelectModal";
+import { ProgressModal } from "./modals/ProgressModal";
+import { calculatePartialMD5, relocalizeFiles, DeadLinkInfo } from "./hash";
+import { getLuaScriptPath, log, resolveToAbsolutePath, toVaultRelativePath, getVaultBasePath } from "./utils";
+import { MpvLinksSettings, DEFAULT_SETTINGS, VideoLinkDetails } from "./types";
+import { buildMpvArgs } from "./mpv-command";
+import { MPV_CODE_BLOCK_START, DEFAULT_TIMESTAMP, BUTTON_LINK_ATTR } from "./constants";
+import {
+	VIDEO_LINK_REGEX,
+	extractDetails,
+	isLinkFixed,
+	extractTimestampInfo,
+	timestampToSeconds,
+	secondsToTimestamp,
+	getStartTimestampFromText,
+	replaceTimestampInLink,
+	replaceAllLinkOccurrences,
+} from "./link-parser";
 
+// Re-export for backwards compatibility
+export { VIDEO_LINK_REGEX, extractDetails, isLinkFixed, extractTimestampInfo, timestampToSeconds, secondsToTimestamp };
+export type { TimestampInfo } from "./link-parser";
 
-import { exec } from 'child_process';
-
-
-
-/**
- * Extracts the last timestamp from MPV player's stdout output
- * @param stdout - The standard output from the MPV process
- * @returns The extracted timestamp in format HH:MM:SS or default timestamp if not found
- */
-export function extractLastTimestamp(stdout: string): string {
-	const timeRegex = /\[ (\d{2}:\d{2}:\d{2}) ]/;
-	const match = stdout.match(timeRegex);
-	return match?.[1] ?? DEFAULT_TIMESTAMP;
-}
 
 /**
  * Extracts the timestamp from a video button's text
@@ -39,29 +44,51 @@ export function extractLastTimestamp(stdout: string): string {
  */
 export function getStartTimestamp(button: HTMLButtonElement): string {
 	log({ input: button.innerText });
-	// The button text timestamp may have multiple # characters
-	// We need to remove all # characters to get the actual timestamp
-	return button.innerText.split("/")[1]?.replace(/#/g, "") ?? DEFAULT_TIMESTAMP;
+	return getStartTimestampFromText(button.innerText);
 }
 
-import { getLuaScriptPath, log } from "./utils";
-async function openVideoAtTime(filePath: string, button: HTMLButtonElement): Promise<void> {
-	const startTimestamp = getStartTimestamp(button);
-	const luaScriptPath = getLuaScriptPath();
-	const command = `mpv --start=${startTimestamp} --script=${luaScriptPath} "${filePath}"`;
+/**
+ * Extracts the last timestamp from MPV player's stdout output
+ * @param stdout - The standard output from the MPV process
+ * @returns The extracted timestamp in format HH:MM:SS or default timestamp if not found
+ * @deprecated Use extractTimestampInfo instead
+ */
+export function extractLastTimestamp(stdout: string): string {
+	return extractTimestampInfo(stdout).timestamp;
+}
 
-	try {
-		const { stdout, stderr } = await executeCommand(command);
-		await updateTimestampInMarkdown(button, stdout);
-	} catch (error) {
-		console.error('Error executing MPV command:', error);
-		new ErrorModal(this.app, error.message).open();
+/**
+ * Formats a file path into a properly formatted video link markdown code block
+ * @param filePath - The path to the video file
+ * @param vaultBasePath - The base path of the Obsidian vault for relative path conversion
+ * @param includeHash - Whether to include MD5 hash and filesize for relocalization
+ * @returns Formatted markdown code block with video link
+ */
+export async function formatFilepathToVideoLink(filePath: string, vaultBasePath: string, includeHash: boolean = false): Promise<string> {
+	const uniqueId = Date.now().toString();
+	const relativePath = toVaultRelativePath(filePath, vaultBasePath);
+
+	let metadataSuffix = "";
+	if (includeHash) {
+		try {
+			const hash = await calculatePartialMD5(filePath);
+			const stats = await fs.promises.stat(filePath);
+			metadataSuffix = `#hash:${hash}#size:${stats.size}`;
+		} catch (error) {
+			console.warn(`Could not calculate hash/size for: ${filePath}`, error);
+		}
 	}
+
+	return `\n\`\`\` ${MPV_CODE_BLOCK_START} \n[[${uniqueId}#video:${relativePath}#${DEFAULT_TIMESTAMP}${metadataSuffix}]]\n\`\`\``;
 }
 
-function executeCommand(command: string): Promise<{ stdout: string, stderr: string }> {
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+function executeFile(binary: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
 	return new Promise((resolve, reject) => {
-		exec(command, (error, stdout, stderr) => {
+		execFile(binary, args, (error, stdout, stderr) => {
 			if (error) {
 				reject(error);
 			} else {
@@ -71,122 +98,45 @@ function executeCommand(command: string): Promise<{ stdout: string, stderr: stri
 	});
 }
 
-async function updateTimestampInMarkdown(button: HTMLButtonElement, mpvStdout: string): Promise<void> {
-	const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-	if (!view) return;
-	const newTimestamp = extractLastTimestamp(mpvStdout);
-	if (!newTimestamp) return;
-	const file = this.app.workspace.getActiveFile();
-	if (!file) return;
-
-	const activeFileContent = await this.app.vault.read(file);
-	const originalLink = button.getAttribute(BUTTON_LINK_ATTR);
-
-	if (!originalLink || isLinkFixed(originalLink)) {
-		// Don't update fixed timestamps
-		log("Timestamp is fixed, not updating");
-		return;
-	}
-
-	const startTimestamp = getStartTimestamp(button);
-	// Fix: The replace should account for potential # marks in button text
-	const cleanStartTimestamp = startTimestamp.replace(/#/g, "");
-	const newLink = originalLink.replace(cleanStartTimestamp, newTimestamp);
-	const newMarkdown = activeFileContent.replace(originalLink, newLink);
-
-	await this.app.vault.modify(file, newMarkdown);
-	log(mpvStdout);
-}
-
-/**
- * Extracts video details from a formatted video link string
- * @param input - The video link string in format [[id#video:path#timestamp(#)]]
- * @returns Object containing filepath, timestamp, and isFixed flag
- */
-export function extractDetails(input: string): { filepath: string; timestamp: string; isFixed: boolean } {
-	// Updated regex to properly capture filepath and timestamp, including fixed timestamps
-	// Format can be either [[id#video:path#timestamp]] or [[id#video:path#timestamp#]] for fixed
-	const videoLinkRegex = /\[\[\d+#video:(.+?)#(.+?)(#)?]]/;
-	const match = input.match(videoLinkRegex);
-
-	return match && match[1] && match[2]
-		? { 
-			filepath: match[1], 
-			timestamp: match[2],
-			// If match[3] exists, it means there was an extra # marking a fixed timestamp
-			isFixed: !!match[3]  
-		}
-		: { filepath: "/", timestamp: DEFAULT_TIMESTAMP, isFixed: false };
-}
-
-
-function createButtonsFromMarkdown(markdown: string, container: HTMLElement): void {
-	const videoLinks = markdown.match(VIDEO_LINK_REGEX) || [];
-	videoLinks.forEach((videoLink) => {
-		const details = extractDetails(videoLink);
-		const button = createVideoButton(details, videoLink);
-		container.appendChild(button);
-	});
-}
-
-interface VideoLinkDetails {
-	filepath: string;
-	timestamp: string;
-	isFixed: boolean; // Added to track if this is a fixed timestamp
-}
-
-import * as path from 'path';
-
-function createVideoButton(details: VideoLinkDetails, videoLink: string): HTMLButtonElement {
+function createVideoButton(details: VideoLinkDetails, videoLink: string, onClick: () => void): HTMLButtonElement {
 	const button = document.createElement("button");
 	const fileName = path.basename(details.filepath);
 
 	button.setAttribute(BUTTON_LINK_ATTR, videoLink);
-	// Fix: Modify button text to show # around timestamp if it's fixed
 	const displayTimestamp = details.isFixed ? `#${details.timestamp}#` : details.timestamp;
 	button.textContent = `${fileName}/${displayTimestamp}`;
-	button.onclick = () => openVideoAtTime(details.filepath, button);
+	button.onclick = onClick;
 
 	return button;
 }
 
-/**
- * Formats a file path into a properly formatted video link markdown code block
- * @param filePath - The path to the video file
- * @returns Formatted markdown code block with video link
- */
-export function formatFilepathToVideoLink(filePath: string): string {
-	const uniqueId = Date.now().toString();
-	return `\n\`\`\` ${MPV_CODE_BLOCK_START} \n[[${uniqueId}#video:${filePath}#${DEFAULT_TIMESTAMP}]]\n\`\`\``;
-}
+// ============================================================================
+// Plugin Class
+// ============================================================================
 
-
-
-// Plugin definition
 export default class MpvLinksPlugin extends Plugin {
-	startDir = (this.app.vault.adapter as any).basePath;
-	
-	// Track currently selected link
+	settings: MpvLinksSettings = DEFAULT_SETTINGS;
+	private startDir: string = "";
 	private selectedLinkIndex: number = -1;
 	private mpvButtons: HTMLButtonElement[] = [];
 	private containers: HTMLElement[] = [];
 
-	async onload() {
+	async onload(): Promise<void> {
+		await this.loadSettings();
+		this.addSettingTab(new MpvLinksSettingTab(this.app, this));
+
+		this.startDir = getVaultBasePath(this.app);
+		if (this.settings.rememberLastFolder && this.settings.lastFolderPath) {
+			this.startDir = this.settings.lastFolderPath;
+		}
 
 		this.registerMarkdownCodeBlockProcessor(MPV_CODE_BLOCK_START, (source, el) => {
-			// const body = el.createEl("body");
-			createButtonsFromMarkdown(source, el);
-			
-			// Store container for navigation
+			this.createButtonsFromMarkdown(source, el);
 			this.containers.push(el);
-			
-			// Make container focusable
 			el.setAttribute("tabindex", "0");
-			
-			// Add keyboard navigation
+
 			el.addEventListener("keydown", (evt: KeyboardEvent) => {
 				if (evt.key === "Enter") {
-					// Find the selected button in this container
 					const buttons = Array.from(el.querySelectorAll("button")) as HTMLButtonElement[];
 					const activeButton = buttons.find(btn => btn.classList.contains("mpv-selected-link"));
 					if (activeButton) {
@@ -197,89 +147,181 @@ export default class MpvLinksPlugin extends Plugin {
 			});
 		});
 
-		// Register commands
+		this.registerCommands();
+	}
+
+	private registerCommands(): void {
 		this.addCommand({
 			id: "add-mpv-link",
 			name: "Add mpv link",
 			editorCallback: (editor: Editor) => {
-				new FileSelectModal(this.app, this.startDir, (filePaths: string[]) => {
-					filePaths.forEach(filePath => editor.replaceRange(formatFilepathToVideoLink(filePath), editor.getCursor("from")));
+				new PathSelectModal(
+					this.app,
+					this.startDir,
+					"file",
+					async (filePaths: string[]) => {
+						const vaultBasePath = getVaultBasePath(this.app);
+						const includeHash = this.settings.enableHashRelocalization;
+						for (const filePath of filePaths) {
+							const text = await formatFilepathToVideoLink(filePath, vaultBasePath, includeHash);
+							editor.replaceRange(text, editor.getCursor("from"));
+						}
 
-					if (filePaths.length > 0 && filePaths[0]) {
-						this.startDir = path.dirname(filePaths[0]);
-					}
-				}
+						if (filePaths.length > 0 && filePaths[0]) {
+							this.startDir = path.dirname(filePaths[0]);
+							if (this.settings.rememberLastFolder) {
+								this.settings.lastFolderPath = this.startDir;
+								await this.saveSettings();
+							}
+						}
+					},
+					true // multiSelect
 				).open();
 			}
 		});
-		
-		// Command to navigate to next MPV link
+
 		this.addCommand({
 			id: "next-mpv-link",
 			name: "Go to next MPV link",
 			callback: () => this.navigateLinks(1)
 		});
-		
-		// Command to navigate to previous MPV link
+
 		this.addCommand({
 			id: "previous-mpv-link",
 			name: "Go to previous MPV link",
 			callback: () => this.navigateLinks(-1)
 		});
-		
-		// Command to open the currently selected link
+
 		this.addCommand({
 			id: "open-selected-mpv-link",
 			name: "Open selected MPV link",
 			callback: () => this.openSelectedLink()
 		});
+
+		this.addCommand({
+			id: "clean-dead-links",
+			name: "Clean dead mpv links",
+			callback: () => this.cleanDeadLinks()
+		});
+
+		this.addCommand({
+			id: "relocalize-links",
+			name: "Update/relocalize links",
+			callback: () => this.relocalizeLinks()
+		});
 	}
-	
-	// Navigate between MPV links with direction (1 for next, -1 for previous)
-	navigateLinks(direction: number): void {
-		// Collect all buttons from all containers
+
+	// ========================================================================
+	// Video Playback
+	// ========================================================================
+
+	private createButtonsFromMarkdown(markdown: string, container: HTMLElement): void {
+		const vaultBasePath = getVaultBasePath(this.app);
+		const videoLinks = markdown.match(VIDEO_LINK_REGEX) || [];
+
+		videoLinks.forEach((videoLink) => {
+			const details = extractDetails(videoLink);
+			const button = createVideoButton(details, videoLink, () => {
+				this.openVideoAtTime(details.filepath, button);
+			});
+			container.appendChild(button);
+		});
+	}
+
+	private async openVideoAtTime(filePath: string, button: HTMLButtonElement): Promise<void> {
+		const startTimestamp = getStartTimestamp(button);
+		const vaultBasePath = getVaultBasePath(this.app);
+		const absolutePath = resolveToAbsolutePath(filePath, vaultBasePath);
+
+		try {
+			const luaScriptPath = getLuaScriptPath();
+			const args = buildMpvArgs(startTimestamp, luaScriptPath, absolutePath);
+			const { stdout } = await executeFile('mpv', args);
+			await this.updateTimestampInMarkdown(button, stdout);
+		} catch (error) {
+			console.error('Error executing MPV command:', error);
+			const msg = error instanceof Error ? error.message : String(error);
+			new MessageModal(this.app, msg, "error").open();
+		}
+	}
+
+	private async updateTimestampInMarkdown(button: HTMLButtonElement, mpvStdout: string): Promise<void> {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) return;
+
+		const timestampInfo = extractTimestampInfo(mpvStdout);
+		if (!timestampInfo.timestamp) return;
+
+		// Apply end-of-video buffer
+		let finalTimestamp = timestampInfo.timestamp;
+		if (timestampInfo.duration && this.settings.endBufferSeconds > 0) {
+			const timestampSeconds = timestampToSeconds(timestampInfo.timestamp);
+			const durationSeconds = timestampToSeconds(timestampInfo.duration);
+			const maxTimestamp = durationSeconds - this.settings.endBufferSeconds;
+
+			if (timestampSeconds > maxTimestamp && maxTimestamp > 0) {
+				finalTimestamp = secondsToTimestamp(maxTimestamp);
+				log(`Capping timestamp from ${timestampInfo.timestamp} to ${finalTimestamp} (buffer: ${this.settings.endBufferSeconds}s)`);
+			}
+		}
+
+		const file = this.app.workspace.getActiveFile();
+		if (!file) return;
+
+		const activeFileContent = await this.app.vault.read(file);
+		const originalLink = button.getAttribute(BUTTON_LINK_ATTR);
+
+		if (!originalLink || isLinkFixed(originalLink)) {
+			log("Timestamp is fixed, not updating");
+			return;
+		}
+
+		const newLink = replaceTimestampInLink(originalLink, finalTimestamp);
+		const newMarkdown = replaceAllLinkOccurrences(activeFileContent, originalLink, newLink);
+
+		await this.app.vault.modify(file, newMarkdown);
+		log(mpvStdout);
+	}
+
+	// ========================================================================
+	// Link Navigation
+	// ========================================================================
+
+	private navigateLinks(direction: number): void {
 		this.updateButtonsList();
-		
+
 		if (this.mpvButtons.length === 0) return;
-		
-		// Clear previous selection
+
 		this.clearSelection();
-		
-		// Update selection index
+
 		if (this.selectedLinkIndex === -1) {
-			// If nothing selected, start at beginning or end based on direction
 			this.selectedLinkIndex = direction > 0 ? 0 : this.mpvButtons.length - 1;
 		} else {
-			// Move in specified direction
 			this.selectedLinkIndex = (this.selectedLinkIndex + direction + this.mpvButtons.length) % this.mpvButtons.length;
 		}
-		
-		// Apply selection styling to new button
+
 		const selectedButton = this.mpvButtons[this.selectedLinkIndex];
 		if (selectedButton) {
 			selectedButton.classList.add("mpv-selected-link");
 			selectedButton.scrollIntoView({ behavior: "smooth", block: "center" });
 		}
 	}
-	
-	// Update the list of all MPV buttons across all containers
-	updateButtonsList(): void {
+
+	private updateButtonsList(): void {
 		this.mpvButtons = [];
 		this.containers.forEach(container => {
 			const buttons = Array.from(container.querySelectorAll("button")) as HTMLButtonElement[];
 			this.mpvButtons.push(...buttons);
 		});
 	}
-	
-	// Clear selection from all buttons
-	clearSelection(): void {
+
+	private clearSelection(): void {
 		this.mpvButtons.forEach(button => {
 			button.classList.remove("mpv-selected-link");
 		});
 	}
-	
-	// Open the currently selected link
-	openSelectedLink(): void {
+
+	private openSelectedLink(): void {
 		if (this.selectedLinkIndex >= 0 && this.selectedLinkIndex < this.mpvButtons.length) {
 			const selectedButton = this.mpvButtons[this.selectedLinkIndex];
 			if (selectedButton) {
@@ -287,16 +329,222 @@ export default class MpvLinksPlugin extends Plugin {
 			}
 		}
 	}
+
+	// ========================================================================
+	// Link Maintenance
+	// ========================================================================
+
+	private async cleanDeadLinks(): Promise<void> {
+		const file = this.app.workspace.getActiveFile();
+		if (!file) {
+			new MessageModal(this.app, "No active file", "error").open();
+			return;
+		}
+
+		const content = await this.app.vault.read(file);
+		const vaultBasePath = getVaultBasePath(this.app);
+		const codeBlockRegex = /\n?```\s*mpv_link\s*\n([\s\S]*?)```/g;
+
+		let removedCount = 0;
+		const newContent = content.replace(codeBlockRegex, (match, blockContent: string) => {
+			const videoLinks = blockContent.match(VIDEO_LINK_REGEX) || [];
+
+			const hasDeadLink = videoLinks.some((link: string) => {
+				const details = extractDetails(link);
+				const absolutePath = resolveToAbsolutePath(details.filepath, vaultBasePath);
+				return !fs.existsSync(absolutePath);
+			});
+
+			if (hasDeadLink) {
+				removedCount++;
+				return "";
+			}
+			return match;
+		});
+
+		if (removedCount > 0) {
+			await this.app.vault.modify(file, newContent);
+			log(`Removed ${removedCount} dead mpv link(s)`);
+		}
+	}
+
+	private async relocalizeLinks(): Promise<void> {
+		if (!this.settings.enableHashRelocalization) {
+			new MessageModal(this.app, "Hash relocalization is disabled. Enable it in settings first.", "error").open();
+			return;
+		}
+
+		const file = this.app.workspace.getActiveFile();
+		if (!file) {
+			new MessageModal(this.app, "No active file", "error").open();
+			return;
+		}
+
+		const content = await this.app.vault.read(file);
+		const vaultBasePath = getVaultBasePath(this.app);
+
+		const videoLinks = content.match(VIDEO_LINK_REGEX) || [];
+		const deadLinksWithHash: { link: string; deadLinkInfo: DeadLinkInfo; details: VideoLinkDetails }[] = [];
+
+		for (const link of videoLinks) {
+			const details = extractDetails(link);
+			if (details.hash) {
+				const absolutePath = resolveToAbsolutePath(details.filepath, vaultBasePath);
+				if (!fs.existsSync(absolutePath)) {
+					deadLinksWithHash.push({
+						link,
+						deadLinkInfo: {
+							originalPath: details.filepath,
+							filename: path.basename(details.filepath),
+							hash: details.hash,
+							size: details.size
+						},
+						details
+					});
+				}
+			}
+		}
+
+		if (deadLinksWithHash.length === 0) {
+			new MessageModal(this.app, "No dead links with hashes found to relocalize.", "info").open();
+			return;
+		}
+
+		new PathSelectModal(this.app, this.startDir, "folder", async (paths: string[]) => {
+			const folderPath = paths[0];
+			if (!folderPath) return;
+
+			log(`Scanning folder: ${folderPath}`);
+
+			// Show progress modal
+			let cancelled = false;
+			const progressModal = new ProgressModal(
+				this.app,
+				"Relocalizing files...",
+				() => { cancelled = true; }
+			);
+			progressModal.open();
+
+			try {
+				// Run tiered relocalization with progress updates
+				const result = await relocalizeFiles({
+					deadLinks: deadLinksWithHash.map(d => d.deadLinkInfo),
+					searchFolder: folderPath,
+					onProgress: (progress) => {
+						progressModal.updateProgress(progress);
+					},
+					isCancelled: () => cancelled
+				});
+
+				progressModal.close();
+
+				if (cancelled) {
+					new MessageModal(this.app, "Relocalization cancelled.", "info").open();
+					return;
+				}
+
+				// Apply matches to content
+				let updatedCount = 0;
+				let newContent = content;
+
+				for (const { link, deadLinkInfo, details } of deadLinksWithHash) {
+					const newFilePath = result.matches.get(deadLinkInfo.originalPath);
+					if (newFilePath) {
+						const newRelativePath = toVaultRelativePath(newFilePath, vaultBasePath);
+						const newLink = link.replace(details.filepath, newRelativePath);
+						newContent = newContent.replace(link, newLink);
+						updatedCount++;
+						log(`Updated: ${details.filepath} -> ${newRelativePath}`);
+					} else {
+						log(`Not found: ${details.filepath} (hash: ${deadLinkInfo.hash})`);
+					}
+				}
+
+				if (updatedCount > 0) {
+					await this.app.vault.modify(file, newContent);
+				}
+
+				const message = `Relocalized ${updatedCount} link(s). ${result.notFound.length} not found.`;
+				log(message);
+				new MessageModal(this.app, message, updatedCount > 0 ? "success" : "info").open();
+			} catch (error) {
+				progressModal.close();
+				console.error('Error during relocalization:', error);
+				new MessageModal(this.app, `Error: ${(error as Error).message}`, "error").open();
+			}
+		}).open();
+	}
+
+	// ========================================================================
+	// Settings
+	// ========================================================================
+
+	async loadSettings(): Promise<void> {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings(): Promise<void> {
+		await this.saveData(this.settings);
+	}
 }
-/**
- * Determines if a video link has a fixed timestamp
- * Fixed timestamps are marked with an extra # at the end and won't be updated
- * @param originalLink - The video link string to check
- * @returns Boolean indicating if the timestamp is fixed
- */
-export function isLinkFixed(originalLink: string): boolean {
-	// Check if the timestamp format has # at the end (fixed timestamp)
-	// Format is like [[id#video:path#timestamp#]] where the last # makes it fixed
-	const timestampEndRegex = /#\d\d:\d\d:\d\d#/;
-	return timestampEndRegex.test(originalLink);
+
+// ============================================================================
+// Settings Tab
+// ============================================================================
+
+class MpvLinksSettingTab extends PluginSettingTab {
+	plugin: MpvLinksPlugin;
+
+	constructor(app: App, plugin: MpvLinksPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName("Remember last folder")
+			.setDesc("When adding a new mpv link, start from the last folder you selected instead of the vault folder.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.rememberLastFolder)
+					.onChange(async (value) => {
+						this.plugin.settings.rememberLastFolder = value;
+						if (!value) {
+							this.plugin.settings.lastFolderPath = "";
+						}
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Relocalize files based on their hash (Experimental!!!)")
+			.setDesc("Store MD5 hash when creating links. Allows finding moved files by content using the 'Update/relocalize links' command.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enableHashRelocalization)
+					.onChange(async (value) => {
+						this.plugin.settings.enableHashRelocalization = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("End-of-video buffer (seconds)")
+			.setDesc("When saving timestamp, cap it to this many seconds before the end. Prevents links that open and close instantly when video ends.")
+			.addText((text) =>
+				text
+					.setPlaceholder("5")
+					.setValue(this.plugin.settings.endBufferSeconds.toString())
+					.onChange(async (value) => {
+						const parsed = parseInt(value, 10);
+						if (!isNaN(parsed) && parsed >= 0) {
+							this.plugin.settings.endBufferSeconds = parsed;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+	}
 }
