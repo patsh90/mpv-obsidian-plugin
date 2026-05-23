@@ -5,7 +5,7 @@ import { VIDEO_EXTENSIONS_NO_DOT } from "../constants";
 export type PathSelectMode = "file" | "folder";
 
 export class PathSelectModal extends Modal {
-	private onSelect: (paths: string[]) => void;
+	private onSelect: (paths: string[]) => void | Promise<void>;
 	private startDirectory: string;
 	private mode: PathSelectMode;
 	private multiSelect: boolean;
@@ -14,7 +14,7 @@ export class PathSelectModal extends Modal {
 		app: App,
 		startDirectory: string,
 		mode: PathSelectMode,
-		onSelect: (paths: string[]) => void,
+		onSelect: (paths: string[]) => void | Promise<void>,
 		multiSelect: boolean = false
 	) {
 		super(app);
@@ -24,7 +24,11 @@ export class PathSelectModal extends Modal {
 		this.multiSelect = multiSelect;
 	}
 
-	async onOpen(): Promise<void> {
+	onOpen(): void {
+		void this.showDialog();
+	}
+
+	private async showDialog(): Promise<void> {
 		const properties: Array<"openFile" | "openDirectory" | "multiSelections"> =
 			this.mode === "folder"
 				? ["openDirectory"]
@@ -51,7 +55,7 @@ export class PathSelectModal extends Modal {
 		});
 
 		if (!result.canceled && result.filePaths.length > 0) {
-			this.onSelect(result.filePaths);
+			await this.onSelect(result.filePaths);
 		}
 		this.close();
 	}

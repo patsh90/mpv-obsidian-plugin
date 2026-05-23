@@ -12,6 +12,10 @@ If your plugin does not need CSS, delete this file.
 	font-weight: bold;
 }
 
+.progress-modal-fill {
+	width: var(--progress-fill-width, 0%);
+}
+
 /* Styling for selected MPV link */
 .mpv-selected-link {
 	border: 2px solid var(--interactive-accent);

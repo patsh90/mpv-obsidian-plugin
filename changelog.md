@@ -1,4 +1,41 @@
- Changelog (since 1.0.7)
+ Changelog
+
+  1.0.10
+
+  Bug Fixes
+
+  - Error wrapping in executeFile - Non-Error rejections are now wrapped in
+    `new Error(String(error))` so callers always receive a proper Error object.
+  - Obsidian-idiomatic button creation - Replaced `document.createElement("button")`
+    with Obsidian's `createEl("button")` so buttons respect the active window context.
+
+  Improvements
+
+  - Async lifecycle methods - `onload()` and `PathSelectModal.onOpen()` now return
+    `void` and delegate async work to private methods, satisfying the Obsidian Plugin
+    API signature and eliminating TypeScript warnings about async overrides.
+  - CSS custom property for progress bar - Progress fill width now uses
+    `--progress-fill-width` CSS variable instead of inline `style.width`, keeping
+    style logic in CSS.
+  - `activeWindow.setTimeout` - Replaced bare `setTimeout` with `activeWindow.setTimeout`
+    in the UI yield helper, making it safe in multi-window Obsidian setups.
+  - PathSelectModal onSelect supports async callbacks - The callback type now allows
+    returning `Promise<void>` so callers can do async work on selection.
+  - Renamed command - "Clean dead mpv links" renamed to "Clean dead links".
+
+  Code Quality
+
+  - Fixed unused catch variable warnings (`_error`) in hash.ts.
+  - Replaced `querySelectorAll("button") as HTMLButtonElement[]` with the typed
+    generic `querySelectorAll<HTMLButtonElement>("button")`.
+  - Removed unused `vaultBasePath` local variable.
+  - Simplified Obsidian internal typings: `EScope` replaced with the official
+    `Scope` type; redundant literal-union types (e.g. `"" | string`) simplified
+    to their base type.
+
+---
+
+  1.0.7
 
   Improvements 
 
