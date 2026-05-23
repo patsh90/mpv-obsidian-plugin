@@ -90,7 +90,7 @@ function executeFile(binary: string, args: string[]): Promise<{ stdout: string; 
 	return new Promise((resolve, reject) => {
 		execFile(binary, args, (error, stdout, stderr) => {
 			if (error) {
-				reject(error);
+				reject(error instanceof Error ? error : new Error(String(error)));
 			} else {
 				resolve({ stdout, stderr });
 			}
@@ -99,7 +99,7 @@ function executeFile(binary: string, args: string[]): Promise<{ stdout: string; 
 }
 
 function createVideoButton(details: VideoLinkDetails, videoLink: string, onClick: () => void): HTMLButtonElement {
-	const button = document.createElement("button");
+	const button = createEl("button");
 	const fileName = path.basename(details.filepath);
 
 	button.setAttribute(BUTTON_LINK_ATTR, videoLink);
@@ -121,7 +121,11 @@ export default class MpvLinksPlugin extends Plugin {
 	private mpvButtons: HTMLButtonElement[] = [];
 	private containers: HTMLElement[] = [];
 
-	async onload(): Promise<void> {
+	onload(): void {
+		void this.initialize();
+	}
+
+	private async initialize(): Promise<void> {
 		await this.loadSettings();
 		this.addSettingTab(new MpvLinksSettingTab(this.app, this));
 
@@ -137,7 +141,7 @@ export default class MpvLinksPlugin extends Plugin {
 
 			el.addEventListener("keydown", (evt: KeyboardEvent) => {
 				if (evt.key === "Enter") {
-					const buttons = Array.from(el.querySelectorAll("button")) as HTMLButtonElement[];
+					const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button"));
 					const activeButton = buttons.find(btn => btn.classList.contains("mpv-selected-link"));
 					if (activeButton) {
 						activeButton.click();
@@ -200,7 +204,7 @@ export default class MpvLinksPlugin extends Plugin {
 
 		this.addCommand({
 			id: "clean-dead-links",
-			name: "Clean dead mpv links",
+			name: "Clean dead links",
 			callback: () => this.cleanDeadLinks()
 		});
 
@@ -216,13 +220,12 @@ export default class MpvLinksPlugin extends Plugin {
 	// ========================================================================
 
 	private createButtonsFromMarkdown(markdown: string, container: HTMLElement): void {
-		const vaultBasePath = getVaultBasePath(this.app);
 		const videoLinks = markdown.match(VIDEO_LINK_REGEX) || [];
 
 		videoLinks.forEach((videoLink) => {
 			const details = extractDetails(videoLink);
 			const button = createVideoButton(details, videoLink, () => {
-				this.openVideoAtTime(details.filepath, button);
+				void this.openVideoAtTime(details.filepath, button);
 			});
 			container.appendChild(button);
 		});
@@ -310,7 +313,7 @@ export default class MpvLinksPlugin extends Plugin {
 	private updateButtonsList(): void {
 		this.mpvButtons = [];
 		this.containers.forEach(container => {
-			const buttons = Array.from(container.querySelectorAll("button")) as HTMLButtonElement[];
+			const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
 			this.mpvButtons.push(...buttons);
 		});
 	}

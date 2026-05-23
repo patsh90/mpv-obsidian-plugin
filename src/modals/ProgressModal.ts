@@ -35,7 +35,7 @@ export class ProgressModal extends Modal {
 
 		this.progressEl = progressContainer.createDiv({ cls: "progress-modal-bar" });
 		this.fillEl = this.progressEl.createDiv({ cls: "progress-modal-fill" });
-		this.fillEl.style.width = "0%";
+		this.fillEl.setCssProps({ '--progress-fill-width': '0%' });
 
 		this.percentEl = progressContainer.createSpan({ cls: "progress-modal-percent", text: "0%" });
 
@@ -71,7 +71,7 @@ export class ProgressModal extends Modal {
 		const percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
 		if (this.fillEl) {
-			this.fillEl.style.width = `${percent}%`;
+			this.fillEl.setCssProps({ '--progress-fill-width': `${percent}%` });
 		}
 		if (this.percentEl) {
 			this.percentEl.setText(`${percent}%`);

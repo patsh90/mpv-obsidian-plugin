@@ -102,6 +102,7 @@ export function getLuaScriptPath(): string {
  */
 export function log(msg: string | number | object): void {
 	if (LOGINFO) {
+		// eslint-disable-next-line no-console -- debug logging gated behind LOGINFO flag
 		console.log(msg);
 	}
 }

@@ -46,8 +46,7 @@ export async function calculatePartialMD5(filePath: string): Promise<string> {
 	const stats = await fs.promises.stat(filePath);
 	const readSize = Math.min(HASH_CHUNK_SIZE, stats.size);
 
-	// bun-types incorrectly types fs.promises.open as Promise<number>; at runtime it returns a FileHandle
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bun-types incorrectly types fs.promises.open as Promise<number>; at runtime it returns a FileHandle
 	const fh: any = await fs.promises.open(filePath, 'r');
 	const buffer = Buffer.alloc(readSize);
 	try {
@@ -85,7 +84,7 @@ export async function scanFolderForVideos(folderPath: string): Promise<string[]>
 					}
 				}
 			}
-		} catch (error) {
+		} catch (_error) {
 			console.warn(`Could not read directory: ${dir}`);
 		}
 	}
@@ -106,7 +105,7 @@ export async function buildHashMap(filePaths: string[]): Promise<Map<string, str
 		try {
 			const hash = await calculatePartialMD5(filePath);
 			hashMap.set(hash, filePath);
-		} catch (error) {
+		} catch (_error) {
 			console.warn(`Could not hash file: ${filePath}`);
 		}
 	}
@@ -165,7 +164,7 @@ export async function relocalizeFiles(options: RelocalizeOptions): Promise<Reloc
 	const notFound: string[] = [];
 	const needsHashFallback: DeadLinkInfo[] = [];
 
-	const yieldToUI = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+	const yieldToUI = () => new Promise<void>(resolve => activeWindow.setTimeout(resolve, 0));
 
 	onProgress?.({ phase: "Scanning folder for video files...", current: 0, total: 100 });
 	await yieldToUI();
