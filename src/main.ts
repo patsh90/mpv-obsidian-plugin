@@ -213,6 +213,12 @@ export default class MpvLinksPlugin extends Plugin {
 			name: "Update/relocalize links",
 			callback: () => this.relocalizeLinks()
 		});
+
+		this.addCommand({
+			id: "sort-links-by-name",
+			name: "Sort links by name",
+			callback: () => this.sortLinksByName()
+		});
 	}
 
 	// ========================================================================
@@ -336,6 +342,36 @@ export default class MpvLinksPlugin extends Plugin {
 	// ========================================================================
 	// Link Maintenance
 	// ========================================================================
+
+	/**
+	 * Reorders the rendered video buttons inside each code block container by
+	 * filename (case-insensitive), so added video links are sorted by name.
+	 */
+	private sortLinksByName(): void {
+		this.containers.forEach(container => {
+			const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
+
+			buttons.sort((a, b) => {
+				const nameA = this.getButtonFileName(a).toLowerCase();
+				const nameB = this.getButtonFileName(b).toLowerCase();
+				return nameA.localeCompare(nameB);
+			});
+
+			buttons.forEach(button => container.appendChild(button));
+		});
+
+		this.clearSelection();
+		this.selectedLinkIndex = -1;
+	}
+
+	private getButtonFileName(button: HTMLButtonElement): string {
+		const link = button.getAttribute(BUTTON_LINK_ATTR);
+		if (link) {
+			const details = extractDetails(link);
+			return path.basename(details.filepath);
+		}
+		return button.textContent || "";
+	}
 
 	private async cleanDeadLinks(): Promise<void> {
 		const file = this.app.workspace.getActiveFile();

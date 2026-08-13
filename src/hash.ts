@@ -55,7 +55,7 @@ export async function calculatePartialMD5(filePath: string): Promise<string> {
 		await fh.close();
 	}
 
-	return crypto.createHash('md5').update(buffer).digest('hex');
+	return crypto.createHash('md5').update(new Uint8Array(buffer)).digest('hex');
 }
 
 /**

@@ -20,6 +20,7 @@ This plugin adds buttons linking to local video files. Clicking a button opens t
 | Open selected MPV link    | None by default |
 | Clean dead mpv links      | None by default |
 | Update/relocalize links   | None by default |
+| Sort links by name        | None by default |
 
 ## Link format
 
