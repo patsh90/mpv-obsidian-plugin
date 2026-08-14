@@ -46,8 +46,7 @@ export async function calculatePartialMD5(filePath: string): Promise<string> {
 	const stats = await fs.promises.stat(filePath);
 	const readSize = Math.min(HASH_CHUNK_SIZE, stats.size);
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bun-types incorrectly types fs.promises.open as Promise<number>; at runtime it returns a FileHandle
-	const fh: any = await fs.promises.open(filePath, 'r');
+	const fh = await fs.promises.open(filePath, 'r');
 	const buffer = Buffer.alloc(readSize);
 	try {
 		await fh.read(buffer, 0, readSize, 0);
@@ -164,7 +163,7 @@ export async function relocalizeFiles(options: RelocalizeOptions): Promise<Reloc
 	const notFound: string[] = [];
 	const needsHashFallback: DeadLinkInfo[] = [];
 
-	const yieldToUI = () => new Promise<void>(resolve => activeWindow.setTimeout(resolve, 0));
+	const yieldToUI = () => new Promise<void>(resolve => window.setTimeout(resolve, 0));
 
 	onProgress?.({ phase: "Scanning folder for video files...", current: 0, total: 100 });
 	await yieldToUI();

@@ -64,7 +64,7 @@ export function extractLastTimestamp(stdout: string): string {
  * @param includeHash - Whether to include MD5 hash and filesize for relocalization
  * @returns Formatted markdown code block with video link
  */
-export async function formatFilepathToVideoLink(filePath: string, vaultBasePath: string, includeHash: boolean = false): Promise<string> {
+export async function formatFilepathToVideoLink(filePath: string, vaultBasePath: string, includeHash = false): Promise<string> {
 	const uniqueId = Date.now().toString();
 	const relativePath = toVaultRelativePath(filePath, vaultBasePath);
 
@@ -116,8 +116,8 @@ function createVideoButton(details: VideoLinkDetails, videoLink: string, onClick
 
 export default class MpvLinksPlugin extends Plugin {
 	settings: MpvLinksSettings = DEFAULT_SETTINGS;
-	private startDir: string = "";
-	private selectedLinkIndex: number = -1;
+	private startDir = "";
+	private selectedLinkIndex = -1;
 	private mpvButtons: HTMLButtonElement[] = [];
 	private containers: HTMLElement[] = [];
 

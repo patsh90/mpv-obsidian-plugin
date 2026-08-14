@@ -38,8 +38,6 @@ import {
 import { EditorView } from "@codemirror/view";
 import { EditorState, Extension } from "@codemirror/state";
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- third-party Obsidian internal typings use any extensively */
-
 interface Account {
 	/**
 	 * The company associated with the activated commercial license
