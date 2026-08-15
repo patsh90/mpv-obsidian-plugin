@@ -4,18 +4,6 @@ import * as path from 'path';
 import { App } from 'obsidian';
 import { LOGINFO } from './constants';
 
-/**
- * Attempts to match a regex pattern in a string and returns the match or a default value
- * @param str - The input string to search
- * @param regex - Regular expression pattern to match
- * @param defaultStr - Default string to return if no match is found
- * @returns The matched string or default value
- */
-export function matchOrDefault(str: string, regex: RegExp, defaultStr: string): string {
-	const match = str.match(regex);
-	return match?.[0] ?? defaultStr;
-}
-
 export const LUA_SCRIPT_CONTENT = `
 local mp = require 'mp'
 

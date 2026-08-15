@@ -86,9 +86,16 @@ export function secondsToTimestamp(totalSeconds: number): string {
  * @param stdout - The standard output from the MPV process
  * @returns Object containing timestamp and optional duration
  */
+/**
+ * A timestamp is only usable when minutes and seconds are real clock values
+ * (0-59). Hours are unbounded — long recordings can exceed 24 h.
+ */
 function hasValidMinutesAndSeconds(ts: string): boolean {
-	const [, mm, ss] = ts.split(':');
-	return parseInt(mm!, 10) < 60 && parseInt(ss!, 10) < 60;
+	const parts = ts.split(':');
+	if (parts.length !== 3) return false;
+	const minutes = parseInt(parts[1] ?? '', 10);
+	const seconds = parseInt(parts[2] ?? '', 10);
+	return minutes < 60 && seconds < 60;
 }
 
 export function extractTimestampInfo(stdout: string): TimestampInfo {
@@ -137,6 +144,108 @@ export function replaceTimestampInLink(originalLink: string, newTimestamp: strin
 	// Match #HH:MM:SS only when followed by # or ] — this is the structural
 	// timestamp position and excludes identical substrings in the file path.
 	return originalLink.replace(/#\d{2}:\d{2}:\d{2}(?=#|])/, `#${newTimestamp}`);
+}
+
+/**
+ * Extracts the basename (filename) from a video link's filepath.
+ * Handles both slash styles so Unix and Windows paths behave the same.
+ */
+function linkFileName(link: string): string {
+	const filepath = extractDetails(link).filepath;
+	return filepath.split(/[/\\]/).pop() ?? "";
+}
+
+/**
+ * A line that contains a video link, i.e. a line we care to reorder.
+ */
+function isVideoLinkLine(line: string): boolean {
+	return line.match(VIDEO_LINK_REGEX) !== null;
+}
+
+/**
+ * Sorts an array of video links by the filename of the referenced video,
+ * case-insensitively. Returns a new array; the input is not modified.
+ */
+export function sortLinksByFileName(links: readonly string[]): string[] {
+	return [...links].sort((a, b) => {
+		const nameA = linkFileName(a).toLowerCase();
+		const nameB = linkFileName(b).toLowerCase();
+		return nameA.localeCompare(nameB);
+	});
+}
+
+/**
+ * Sorts the video-link lines of a raw mpv_link block body, leaving any
+ * non-link lines (blank lines, stray text) in their original positions.
+ */
+function sortVideoLinkLines(inner: string): string {
+	const lines = inner.split("\n");
+	const sortedLinkLines = sortLinksByFileName(lines.filter(isVideoLinkLine));
+
+	// Rebuild line by line: link lines come back in sorted order, everything
+	// else is repeated unchanged.
+	const reordered: string[] = [];
+	let nextSortedLink = 0;
+	for (const line of lines) {
+		if (!isVideoLinkLine(line)) {
+			reordered.push(line);
+		} else {
+			reordered.push(sortedLinkLines[nextSortedLink] ?? line);
+			nextSortedLink++;
+		}
+	}
+	return reordered.join("\n");
+}
+
+/**
+ * Sorts the links inside a matched mpv_link block, keeping its fences and any
+ * surrounding whitespace exactly as they were.
+ */
+function sortLinksInBlock(blockMatch: string, inner: string): string {
+	const innerStart = blockMatch.indexOf(inner);
+	const blockPrefix = blockMatch.slice(0, innerStart);
+	const blockSuffix = blockMatch.slice(innerStart + inner.length);
+	return blockPrefix + sortVideoLinkLines(inner) + blockSuffix;
+}
+
+/**
+ * Rewrites `content` so every mpv_link fenced block is reordered by the
+ * filename of the video in its first link (case-insensitive, basename only),
+ * and the links inside each block are sorted by filename too. The text between
+ * blocks stays where it is — only the blocks move.
+ * @param content - Full markdown document text
+ * @returns Content with mpv_link blocks sorted by filename
+ */
+export function sortMpvLinkBlocksByFileName(content: string): string {
+	const codeBlockRegex = /```\s*mpv_link\s*\n([\s\S]*?)```/g;
+
+	// Slice the document into blocks and the text between them; the gaps keep
+	// their slots later so reordering blocks never drags surrounding prose.
+	const blocks: string[] = [];
+	const textBeforeEachBlock: string[] = [];
+	let matchEnd = 0;
+	let match: RegExpExecArray | null;
+	while ((match = codeBlockRegex.exec(content)) !== null) {
+		textBeforeEachBlock.push(content.slice(matchEnd, match.index));
+		blocks.push(sortLinksInBlock(match[0], match[1] ?? ""));
+		matchEnd = match.index + match[0].length;
+	}
+	textBeforeEachBlock.push(content.slice(matchEnd));
+
+	const firstLinkFileName = (block: string): string => {
+		const firstLink = block.match(VIDEO_LINK_REGEX)?.[0];
+		return firstLink ? linkFileName(firstLink).toLowerCase() : "";
+	};
+	blocks.sort((a, b) => firstLinkFileName(a).localeCompare(firstLinkFileName(b)));
+
+	// Reassemble: block N is preceded by the text gap that sat before it in
+	// the document, and the last gap is whatever followed the final block.
+	let sortedContent = "";
+	blocks.forEach((block, index) => {
+		sortedContent += textBeforeEachBlock[index] ?? "";
+		sortedContent += block;
+	});
+	return sortedContent + (textBeforeEachBlock[blocks.length] ?? "");
 }
 
 /**

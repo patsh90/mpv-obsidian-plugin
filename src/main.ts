@@ -30,6 +30,7 @@ import {
 	getStartTimestampFromText,
 	replaceTimestampInLink,
 	replaceAllLinkOccurrences,
+	sortMpvLinkBlocksByFileName,
 } from "./link-parser";
 
 // Re-export for backwards compatibility
@@ -114,6 +115,35 @@ function createVideoButton(details: VideoLinkDetails, videoLink: string, onClick
 // Plugin Class
 // ============================================================================
 
+interface DeadLinkWithHash {
+	link: string;
+	deadLinkInfo: DeadLinkInfo;
+}
+
+/**
+ * The links whose video file is missing on disk and that still carry a stored
+ * hash — exactly the ones relocalization can still recover by content.
+ */
+function findDeadLinksWithHash(content: string, vaultBasePath: string): DeadLinkWithHash[] {
+	const deadLinks: DeadLinkWithHash[] = [];
+	for (const link of content.match(VIDEO_LINK_REGEX) ?? []) {
+		const details = extractDetails(link);
+		if (!details.hash) continue;
+		if (fs.existsSync(resolveToAbsolutePath(details.filepath, vaultBasePath))) continue;
+
+		deadLinks.push({
+			link,
+			deadLinkInfo: {
+				originalPath: details.filepath,
+				filename: path.basename(details.filepath),
+				hash: details.hash,
+				size: details.size,
+			},
+		});
+	}
+	return deadLinks;
+}
+
 export default class MpvLinksPlugin extends Plugin {
 	settings: MpvLinksSettings = DEFAULT_SETTINGS;
 	private startDir = "";
@@ -163,22 +193,7 @@ export default class MpvLinksPlugin extends Plugin {
 					this.app,
 					this.startDir,
 					"file",
-					async (filePaths: string[]) => {
-						const vaultBasePath = getVaultBasePath(this.app);
-						const includeHash = this.settings.enableHashRelocalization;
-						for (const filePath of filePaths) {
-							const text = await formatFilepathToVideoLink(filePath, vaultBasePath, includeHash);
-							editor.replaceRange(text, editor.getCursor("from"));
-						}
-
-						if (filePaths.length > 0 && filePaths[0]) {
-							this.startDir = path.dirname(filePaths[0]);
-							if (this.settings.rememberLastFolder) {
-								this.settings.lastFolderPath = this.startDir;
-								await this.saveSettings();
-							}
-						}
-					},
+					(filePaths: string[]) => this.addSelectedLinks(editor, filePaths),
 					true // multiSelect
 				).open();
 			}
@@ -222,6 +237,35 @@ export default class MpvLinksPlugin extends Plugin {
 	}
 
 	// ========================================================================
+	// Link Creation
+	// ========================================================================
+
+	/**
+	 * Turns the user's chosen files into mpv_link blocks at the cursor, then
+	 * remembers the chosen folder when the setting asks for it.
+	 */
+	private async addSelectedLinks(editor: Editor, filePaths: string[]): Promise<void> {
+		const vaultBasePath = getVaultBasePath(this.app);
+		const includeHash = this.settings.enableHashRelocalization;
+
+		for (const filePath of filePaths) {
+			const linkBlock = await formatFilepathToVideoLink(filePath, vaultBasePath, includeHash);
+			editor.replaceRange(linkBlock, editor.getCursor("from"));
+		}
+
+		const firstFile = filePaths[0];
+		if (!firstFile) {
+			return;
+		}
+		this.startDir = path.dirname(firstFile);
+		if (!this.settings.rememberLastFolder) {
+			return;
+		}
+		this.settings.lastFolderPath = this.startDir;
+		await this.saveSettings();
+	}
+
+	// ========================================================================
 	// Video Playback
 	// ========================================================================
 
@@ -254,6 +298,32 @@ export default class MpvLinksPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Caps a recorded playback position to the configured number of seconds
+	 * before the video ends. Without this, a link saved right when the video
+	 * finished would seek to the last frame and close immediately on reopen.
+	 */
+	private applyEndBuffer(timestamp: string, duration: string | undefined): string {
+		if (!duration) {
+			return timestamp;
+		}
+
+		const bufferSeconds = this.settings.endBufferSeconds;
+		if (bufferSeconds <= 0) {
+			return timestamp;
+		}
+
+		const latestPlayable = timestampToSeconds(duration) - bufferSeconds;
+		const recorded = timestampToSeconds(timestamp);
+		if (latestPlayable <= 0 || recorded <= latestPlayable) {
+			return timestamp;
+		}
+
+		const capped = secondsToTimestamp(latestPlayable);
+		log(`Capping timestamp from ${timestamp} to ${capped} (buffer: ${bufferSeconds}s)`);
+		return capped;
+	}
+
 	private async updateTimestampInMarkdown(button: HTMLButtonElement, mpvStdout: string): Promise<void> {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view) return;
@@ -261,18 +331,7 @@ export default class MpvLinksPlugin extends Plugin {
 		const timestampInfo = extractTimestampInfo(mpvStdout);
 		if (!timestampInfo.timestamp) return;
 
-		// Apply end-of-video buffer
-		let finalTimestamp = timestampInfo.timestamp;
-		if (timestampInfo.duration && this.settings.endBufferSeconds > 0) {
-			const timestampSeconds = timestampToSeconds(timestampInfo.timestamp);
-			const durationSeconds = timestampToSeconds(timestampInfo.duration);
-			const maxTimestamp = durationSeconds - this.settings.endBufferSeconds;
-
-			if (timestampSeconds > maxTimestamp && maxTimestamp > 0) {
-				finalTimestamp = secondsToTimestamp(maxTimestamp);
-				log(`Capping timestamp from ${timestampInfo.timestamp} to ${finalTimestamp} (buffer: ${this.settings.endBufferSeconds}s)`);
-			}
-		}
+		const finalTimestamp = this.applyEndBuffer(timestampInfo.timestamp, timestampInfo.duration);
 
 		const file = this.app.workspace.getActiveFile();
 		if (!file) return;
@@ -344,33 +403,25 @@ export default class MpvLinksPlugin extends Plugin {
 	// ========================================================================
 
 	/**
-	 * Reorders the rendered video buttons inside each code block container by
-	 * filename (case-insensitive), so added video links are sorted by name.
+	 * Rewrites the active note so its mpv_link code blocks are ordered by the
+	 * filename of the referenced video (case-insensitive), and the links inside
+	 * each block are sorted too. Non-mpv_link content is left untouched.
 	 */
-	private sortLinksByName(): void {
-		this.containers.forEach(container => {
-			const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
+	private async sortLinksByName(): Promise<void> {
+		const file = this.app.workspace.getActiveFile();
+		if (!file) return;
 
-			buttons.sort((a, b) => {
-				const nameA = this.getButtonFileName(a).toLowerCase();
-				const nameB = this.getButtonFileName(b).toLowerCase();
-				return nameA.localeCompare(nameB);
-			});
+		const content = await this.app.vault.read(file);
+		const sortedContent = sortMpvLinkBlocksByFileName(content);
 
-			buttons.forEach(button => container.appendChild(button));
-		});
+		// Skip identical writes: an unchanged modify() still fires Obsidian's
+		// file-change hooks and clobbers the undo history for no reason.
+		if (sortedContent !== content) {
+			await this.app.vault.modify(file, sortedContent);
+		}
 
 		this.clearSelection();
 		this.selectedLinkIndex = -1;
-	}
-
-	private getButtonFileName(button: HTMLButtonElement): string {
-		const link = button.getAttribute(BUTTON_LINK_ATTR);
-		if (link) {
-			const details = extractDetails(link);
-			return path.basename(details.filepath);
-		}
-		return button.textContent || "";
 	}
 
 	private async cleanDeadLinks(): Promise<void> {
@@ -422,27 +473,7 @@ export default class MpvLinksPlugin extends Plugin {
 		const content = await this.app.vault.read(file);
 		const vaultBasePath = getVaultBasePath(this.app);
 
-		const videoLinks = content.match(VIDEO_LINK_REGEX) || [];
-		const deadLinksWithHash: { link: string; deadLinkInfo: DeadLinkInfo; details: VideoLinkDetails }[] = [];
-
-		for (const link of videoLinks) {
-			const details = extractDetails(link);
-			if (details.hash) {
-				const absolutePath = resolveToAbsolutePath(details.filepath, vaultBasePath);
-				if (!fs.existsSync(absolutePath)) {
-					deadLinksWithHash.push({
-						link,
-						deadLinkInfo: {
-							originalPath: details.filepath,
-							filename: path.basename(details.filepath),
-							hash: details.hash,
-							size: details.size
-						},
-						details
-					});
-				}
-			}
-		}
+		const deadLinksWithHash = findDeadLinksWithHash(content, vaultBasePath);
 
 		if (deadLinksWithHash.length === 0) {
 			new MessageModal(this.app, "No dead links with hashes found to relocalize.", "info").open();
@@ -486,16 +517,16 @@ export default class MpvLinksPlugin extends Plugin {
 				let updatedCount = 0;
 				let newContent = content;
 
-				for (const { link, deadLinkInfo, details } of deadLinksWithHash) {
+				for (const { link, deadLinkInfo } of deadLinksWithHash) {
 					const newFilePath = result.matches.get(deadLinkInfo.originalPath);
 					if (newFilePath) {
 						const newRelativePath = toVaultRelativePath(newFilePath, vaultBasePath);
-						const newLink = link.replace(details.filepath, newRelativePath);
+						const newLink = link.replace(deadLinkInfo.originalPath, newRelativePath);
 						newContent = newContent.replace(link, newLink);
 						updatedCount++;
-						log(`Updated: ${details.filepath} -> ${newRelativePath}`);
+						log(`Updated: ${deadLinkInfo.originalPath} -> ${newRelativePath}`);
 					} else {
-						log(`Not found: ${details.filepath} (hash: ${deadLinkInfo.hash})`);
+						log(`Not found: ${deadLinkInfo.originalPath} (hash: ${deadLinkInfo.hash})`);
 					}
 				}
 

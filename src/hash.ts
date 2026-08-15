@@ -57,10 +57,18 @@ export async function calculatePartialMD5(filePath: string): Promise<string> {
 	return crypto.createHash('md5').update(new Uint8Array(buffer)).digest('hex');
 }
 
+function isHiddenDirectory(name: string): boolean {
+	return name.startsWith('.') || name === 'node_modules';
+}
+
+function isVideoFile(name: string): boolean {
+	return VIDEO_EXTENSIONS.includes(path.extname(name).toLowerCase());
+}
+
 /**
- * Recursively scans a folder for video files
+ * Recursively lists every video file under a folder.
  * @param folderPath - The folder to scan
- * @returns Array of absolute paths to video files
+ * @returns Absolute paths to all video files found
  */
 export async function scanFolderForVideos(folderPath: string): Promise<string[]> {
 	const videoFiles: string[] = [];
@@ -71,19 +79,14 @@ export async function scanFolderForVideos(folderPath: string): Promise<string[]>
 
 			for (const entry of entries) {
 				const fullPath = path.join(dir, entry.name);
-
-				if (entry.isDirectory()) {
-					if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
-						await scanRecursive(fullPath);
-					}
-				} else if (entry.isFile()) {
-					const ext = path.extname(entry.name).toLowerCase();
-					if (VIDEO_EXTENSIONS.includes(ext)) {
-						videoFiles.push(fullPath);
-					}
+				if (entry.isDirectory() && !isHiddenDirectory(entry.name)) {
+					await scanRecursive(fullPath);
+				} else if (entry.isFile() && isVideoFile(entry.name)) {
+					videoFiles.push(fullPath);
 				}
 			}
-		} catch (_error) {
+		} catch {
+			// Unreadable folders (missing permissions) are skipped, not fatal.
 			console.warn(`Could not read directory: ${dir}`);
 		}
 	}
@@ -92,34 +95,21 @@ export async function scanFolderForVideos(folderPath: string): Promise<string[]>
 	return videoFiles;
 }
 
-/**
- * Builds a map of hash -> filepath for a list of video files
- * @param filePaths - Array of absolute file paths
- * @returns Map where key is the partial MD5 hash and value is the file path
- */
-export async function buildHashMap(filePaths: string[]): Promise<Map<string, string>> {
-	const hashMap = new Map<string, string>();
-
-	for (const filePath of filePaths) {
-		try {
-			const hash = await calculatePartialMD5(filePath);
-			hashMap.set(hash, filePath);
-		} catch (_error) {
-			console.warn(`Could not hash file: ${filePath}`);
-		}
-	}
-
-	return hashMap;
-}
-
 // ============================================================================
 // Tiered Relocalization
 // ============================================================================
 
 /**
- * Gets the file size for a given path
- * @param filePath - Absolute path to the file
- * @returns File size in bytes, or undefined if file doesn't exist/can't be read
+ * Relocation resolving proceeds cheapest-first, so common cases avoid I/O:
+ * Tier 1 — exact filename match            (map lookup, no I/O)
+ * Tier 2 — matching file size              (one stat() per candidate)
+ * Tier 3 — partial MD5 match               (one 10 MB read per candidate)
+ * Links unresolved by these tiers fall back to a single full-scan hash map.
+ */
+
+/**
+ * Reads a file's size in bytes, silently treating missing/unreadable files
+ * as "no size" so they simply never match by size.
  */
 async function getFileSize(filePath: string): Promise<number | undefined> {
 	try {
@@ -148,11 +138,70 @@ function groupByFilename(filePaths: string[]): Map<string, string[]> {
 }
 
 /**
- * Relocalize files using tiered matching strategy (cheapest to most expensive)
- *
- * Tier 1: Filename match (instant - string comparison)
- * Tier 2: Filesize match (fast - single stat call per candidate)
- * Tier 3: Hash match (slow - only when needed)
+ * The candidate files that share a dead link's filename.
+ */
+function filesNamed(filesByName: Map<string, string[]>, filename: string): string[] {
+	return filesByName.get(filename) ?? [];
+}
+
+/**
+ * Tier 2: keep only the candidates whose size matches the dead link's size.
+ */
+async function filesOfSize(filePaths: string[], expectedSize: number): Promise<string[]> {
+	const matching: string[] = [];
+	for (const filePath of filePaths) {
+		if ((await getFileSize(filePath)) === expectedSize) {
+			matching.push(filePath);
+		}
+	}
+	return matching;
+}
+
+/**
+ * Tier 3: the first candidate whose partial MD5 matches the recorded hash.
+ */
+async function matchingHash(filePaths: string[], expectedHash: string): Promise<string | undefined> {
+	for (const filePath of filePaths) {
+		try {
+			if ((await calculatePartialMD5(filePath)) === expectedHash) {
+				return filePath;
+			}
+		} catch {
+			// An unreadable file can never be verified, so it can never match.
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Resolves a single dead link against the scanned file index using the three
+ * cheap tiers. Returns the relocated absolute path, or undefined when no
+ * candidate passes.
+ */
+async function matchLink(link: DeadLinkInfo, filesByName: Map<string, string[]>): Promise<string | undefined> {
+	const candidates = filesNamed(filesByName, path.basename(link.originalPath).toLowerCase());
+	if (candidates.length === 0) {
+		return undefined;
+	}
+
+	// Size is an exact discriminator: it can reject every candidate without
+	// reading a single byte of content.
+	if (link.size !== undefined) {
+		const sizeFiltered = await filesOfSize(candidates, link.size);
+		if (sizeFiltered.length === 0) {
+			return undefined;
+		}
+		return matchingHash(sizeFiltered, link.hash);
+	}
+
+	return matchingHash(candidates, link.hash);
+}
+
+/**
+ * Relocalizes dead links against the files found under `searchFolder`.
+ * Resolves each link with the cheapest tier that can answer it, then runs one
+ * full scan-and-hash pass only for the links the cheap tiers could not settle
+ * (moved-and-renamed files, or ambiguous filename+size collisions).
  *
  * @param options - Relocalization options including dead links and search folder
  * @returns Promise with matches map and list of not-found paths
@@ -161,141 +210,82 @@ export async function relocalizeFiles(options: RelocalizeOptions): Promise<Reloc
 	const { deadLinks, searchFolder, onProgress, isCancelled } = options;
 	const matches = new Map<string, string>();
 	const notFound: string[] = [];
-	const needsHashFallback: DeadLinkInfo[] = [];
+	const needsFallback: DeadLinkInfo[] = [];
 
+	// Pause between progress updates so Obsidian's UI can repaint during this
+	// long, I/O-bound job. Without this the modal freezes mid-scan.
 	const yieldToUI = () => new Promise<void>(resolve => window.setTimeout(resolve, 0));
+	const report = (phase: string, current: number, total: number, detail?: string) => {
+		onProgress?.({ phase, current, total, detail });
+		return yieldToUI();
+	};
 
-	onProgress?.({ phase: "Scanning folder for video files...", current: 0, total: 100 });
-	await yieldToUI();
-
+	await report("Scanning folder for video files...", 0, 100);
 	if (isCancelled?.()) {
 		return { matches, notFound };
 	}
 
 	const videoFiles = await scanFolderForVideos(searchFolder);
-	const totalFiles = videoFiles.length;
-
-	onProgress?.({
-		phase: "Scanning folder for video files...",
-		current: 100,
-		total: 100,
-		detail: `Found ${totalFiles} video files`
-	});
-	await yieldToUI();
-
+	const filesByName = groupByFilename(videoFiles);
+	await report("Scanning folder for video files...", 100, 100, `Found ${videoFiles.length} video files`);
 	if (isCancelled?.()) {
 		return { matches, notFound };
 	}
-
-	const filesByName = groupByFilename(videoFiles);
-	const totalLinks = deadLinks.length;
 
 	for (let i = 0; i < deadLinks.length; i++) {
 		if (isCancelled?.()) {
 			return { matches, notFound };
 		}
-
 		const link = deadLinks[i];
 		if (!link) continue;
 
-		const linkFilename = path.basename(link.originalPath).toLowerCase();
+		await report("Matching files...", i + 1, deadLinks.length, `Checking: ${path.basename(link.originalPath).toLowerCase()}`);
 
-		onProgress?.({
-			phase: "Matching files...",
-			current: i + 1,
-			total: totalLinks,
-			detail: `Checking: ${linkFilename}`
-		});
-		await yieldToUI();
-
-		// Tier 1: Filename match
-		const candidates = filesByName.get(linkFilename) || [];
-
-		if (candidates.length === 0) {
-			needsHashFallback.push(link);
-			continue;
-		}
-
-		// Tier 2: Filter by filesize (if we have size info)
-		let sizeFilteredCandidates = candidates;
-		if (link.size !== undefined) {
-			sizeFilteredCandidates = [];
-			for (const filePath of candidates) {
-				const fileSize = await getFileSize(filePath);
-				if (fileSize === link.size) {
-					sizeFilteredCandidates.push(filePath);
-				}
-			}
-
-			if (sizeFilteredCandidates.length === 0) {
-				needsHashFallback.push(link);
-				continue;
-			}
-		}
-
-		// Tier 3: Hash verification for remaining candidates
-		let matched = false;
-		for (const candidate of sizeFilteredCandidates) {
-			try {
-				const candidateHash = await calculatePartialMD5(candidate);
-				if (candidateHash === link.hash) {
-					matches.set(link.originalPath, candidate);
-					matched = true;
-					break;
-				}
-			} catch {
-				// Skip files we can't hash
-			}
-		}
-
-		if (!matched) {
-			needsHashFallback.push(link);
+		const match = await matchLink(link, filesByName);
+		if (match) {
+			matches.set(link.originalPath, match);
+		} else {
+			needsFallback.push(link);
 		}
 	}
 
-	if (needsHashFallback.length > 0) {
-		onProgress?.({
-			phase: "Building hash map for remaining files...",
-			current: 0,
-			total: totalFiles,
-			detail: `${needsHashFallback.length} links need full hash search`
-		});
-		await yieldToUI();
+	if (needsFallback.length === 0) {
+		return { matches, notFound };
+	}
 
-		// Build hash map for ALL video files (expensive but only done if needed)
-		const hashMap = new Map<string, string>();
+	await report(
+		"Building hash map for remaining files...",
+		0,
+		videoFiles.length,
+		`${needsFallback.length} links need full hash search`
+	);
+	if (isCancelled?.()) {
+		return { matches, notFound };
+	}
 
-		for (let i = 0; i < videoFiles.length; i++) {
-			if (isCancelled?.()) {
-				return { matches, notFound };
-			}
-
-			const filePath = videoFiles[i];
-			if (!filePath) continue;
-
-			onProgress?.({
-				phase: "Computing hashes...",
-				current: i + 1,
-				total: totalFiles,
-				detail: path.basename(filePath)
-			});
-			await yieldToUI();
-
-			try {
-				const hash = await calculatePartialMD5(filePath);
-				hashMap.set(hash, filePath);
-			} catch {
-				// Skip files we can't hash
-			}
+	// Expensive pass: hash every video once, then resolve the deferred links.
+	const hashMap = new Map<string, string>();
+	for (let i = 0; i < videoFiles.length; i++) {
+		if (isCancelled?.()) {
+			return { matches, notFound };
 		}
+		const filePath = videoFiles[i];
+		if (!filePath) continue;
 
-		for (const link of needsHashFallback) {
-			const newPath = hashMap.get(link.hash);
-			if (newPath) {
-				matches.set(link.originalPath, newPath);
-			} else {
-				notFound.push(link.originalPath);
-			}
+		await report("Computing hashes...", i + 1, videoFiles.length, path.basename(filePath));
+		try {
+			hashMap.set(await calculatePartialMD5(filePath), filePath);
+		} catch {
+			// Skip unreadable files; they can never serve as a match.
+		}
+	}
+
+	for (const link of needsFallback) {
+		const newPath = hashMap.get(link.hash);
+		if (newPath) {
+			matches.set(link.originalPath, newPath);
+		} else {
+			notFound.push(link.originalPath);
 		}
 	}
 

@@ -15,7 +15,7 @@ export class ProgressModal extends Modal {
 	private statusEl: HTMLDivElement | null = null;
 	private detailEl: HTMLDivElement | null = null;
 	private cancelCallback: (() => void) | null = null;
-	private cancelled: boolean = false;
+	private cancelled = false;
 
 	constructor(app: App, title: string, onCancel?: () => void) {
 		super(app);
@@ -27,10 +27,8 @@ export class ProgressModal extends Modal {
 		const { contentEl } = this;
 		contentEl.addClass("progress-modal");
 
-		// Title
 		contentEl.createEl("h3", { text: this.title });
 
-		// Progress bar container
 		const progressContainer = contentEl.createDiv({ cls: "progress-modal-container" });
 
 		this.progressEl = progressContainer.createDiv({ cls: "progress-modal-bar" });
@@ -39,28 +37,25 @@ export class ProgressModal extends Modal {
 
 		this.percentEl = progressContainer.createSpan({ cls: "progress-modal-percent", text: "0%" });
 
-		// Status text
 		this.statusEl = contentEl.createDiv({ cls: "progress-modal-status" });
 		this.statusEl.setText("Initializing...");
 
-		// Detail text
 		this.detailEl = contentEl.createDiv({ cls: "progress-modal-detail" });
 
-		// Cancel button
 		const buttonContainer = contentEl.createDiv({ cls: "progress-modal-buttons" });
 		const cancelBtn = buttonContainer.createEl("button", { text: "Cancel" });
-		cancelBtn.addEventListener("click", () => {
-			this.cancelled = true;
-			if (this.cancelCallback) {
-				this.cancelCallback();
-			}
-			this.close();
-		});
+		cancelBtn.addEventListener("click", () => this.handleCancel());
 	}
 
 	onClose(): void {
 		const { contentEl } = this;
 		contentEl.empty();
+	}
+
+	private handleCancel(): void {
+		this.cancelled = true;
+		this.cancelCallback?.();
+		this.close();
 	}
 
 	/**

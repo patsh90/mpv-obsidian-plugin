@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { extractDetails, isLinkFixed, VIDEO_LINK_REGEX, replaceTimestampInLink, replaceAllLinkOccurrences, timestampToSeconds, extractTimestampInfo } from "./link-parser";
+import { extractDetails, isLinkFixed, VIDEO_LINK_REGEX, replaceTimestampInLink, replaceAllLinkOccurrences, timestampToSeconds, extractTimestampInfo, sortLinksByFileName, sortMpvLinkBlocksByFileName } from "./link-parser";
 import { buildMpvArgs } from "./mpv-command";
 
 // ============================================================================
@@ -380,6 +380,210 @@ describe("replaceAllLinkOccurrences", () => {
 		const result = replaceAllLinkOccurrences(content, LINK, NEW_LINK);
 		expect(result.split(NEW_LINK).length - 1).toBe(3);
 		expect(result).not.toContain(LINK);
+	});
+});
+
+// ============================================================================
+// sortLinksByFileName tests
+//
+// The plugin's "Sort links by name" command reorders mpv links by the
+// filename of the referenced video. Sorting happens on the link strings
+// themselves, so it can be tested as a pure function independent of Obsidian.
+// Rule under test: sort by basename of the video path, case-insensitively,
+// never mutating the input.
+// ============================================================================
+
+describe("sortLinksByFileName", () => {
+	const link = (filepath: string, timestamp = "00:00:00") =>
+		`[[123#video:${filepath}#${timestamp}]]`;
+
+	test("sorts links by filename alphabetically", () => {
+		const links = [link("/videos/c.mp4"), link("/videos/a.mp4"), link("/videos/b.mp4")];
+		expect(sortLinksByFileName(links)).toEqual([
+			link("/videos/a.mp4"),
+			link("/videos/b.mp4"),
+			link("/videos/c.mp4"),
+		]);
+	});
+
+	test("sort order is case-insensitive", () => {
+		const links = [link("/videos/C.mp4"), link("/videos/a.mp4"), link("/videos/B.mp4")];
+		expect(sortLinksByFileName(links)).toEqual([
+			link("/videos/a.mp4"),
+			link("/videos/B.mp4"),
+			link("/videos/C.mp4"),
+		]);
+	});
+
+	test("sorts by filename only, ignoring directory structure", () => {
+		const links = [link("/z/b.mp4"), link("/b/c.mp4"), link("/c/a.mp4")];
+		expect(sortLinksByFileName(links)).toEqual([
+			link("/c/a.mp4"),
+			link("/z/b.mp4"),
+			link("/b/c.mp4"),
+		]);
+	});
+
+	test("keeps original order for links with the same filename", () => {
+		const first = link("/x/e.mp4");
+		const second = link("/y/e.mp4");
+		expect(sortLinksByFileName([first, second])).toEqual([first, second]);
+	});
+
+	test("does not mutate the input array", () => {
+		const links = [link("/videos/b.mp4"), link("/videos/a.mp4")];
+		const before = links.slice();
+		sortLinksByFileName(links);
+		expect(links).toEqual(before);
+	});
+
+	test("returns an empty array for an empty input", () => {
+		expect(sortLinksByFileName([])).toEqual([]);
+	});
+
+	test("preserves timestamps and metadata on sorted links", () => {
+		const links = [
+			"[[123#video:/videos/b.mp4#00:03:00##hash:abc#size:42]]",
+			"[[456#video:/videos/a.mp4#01:00:00#hash:def]]",
+		];
+		expect(sortLinksByFileName(links)).toEqual([
+			"[[456#video:/videos/a.mp4#01:00:00#hash:def]]",
+			"[[123#video:/videos/b.mp4#00:03:00##hash:abc#size:42]]",
+		]);
+	});
+});
+
+// ============================================================================
+// sortMpvLinkBlocksByFileName tests
+//
+// Bug being fixed: the "Sort links by name" command only reordered rendered
+// <button> elements INSIDE each mpv_link code block and never wrote back to
+// markdown. When a note has one link per code block (the common layout), each
+// container holds a single button, so the command visibly did nothing.
+//
+// New behaviour: the whole document is rewritten so the mpv_link code blocks
+// are reordered by the filename of the video they reference (case-insensitive,
+// basename only), and links within a block are sorted too. Non-block text is
+// preserved verbatim.
+// ============================================================================
+
+describe("sortMpvLinkBlocksByFileName", () => {
+	const block = (filepath: string, timestamp = "00:00:00", id = "123") =>
+		"``` mpv_link \n" + `[[${id}#video:${filepath}#${timestamp}]]` + "\n```";
+
+	// --- The reported bug scenario: one link per code block ---
+
+	test("reorders one-link-per-block documents by filename across the whole file", () => {
+		const content = [
+			block("/rashka/7.4_Chapter_7.4_.mkv", "00:00:00", "1786804822636"),
+			block("/rashka/6.8_Chapter_6.8_.mkv", "00:04:38", "1786804822692"),
+			block("/rashka/7.2_Chapter_7.2_.mkv", "00:00:00", "1786804822675"),
+		].join("\n");
+
+		const sorted = sortMpvLinkBlocksByFileName(content);
+
+		expect(sorted).toBe([
+			block("/rashka/6.8_Chapter_6.8_.mkv", "00:04:38", "1786804822692"),
+			block("/rashka/7.2_Chapter_7.2_.mkv", "00:00:00", "1786804822675"),
+			block("/rashka/7.4_Chapter_7.4_.mkv", "00:00:00", "1786804822636"),
+		].join("\n"));
+	});
+
+	// --- Block-level behaviours ---
+
+	test("sorts links inside a single block that holds multiple links", () => {
+		const content = [
+			"``` mpv_link ",
+			"[[2#video:/videos/c.mp4#00:00:00]]",
+			"[[1#video:/videos/a.mp4#00:00:00]]",
+			"[[3#video:/videos/b.mp4#00:00:00]]",
+			"```",
+		].join("\n");
+
+		expect(sortMpvLinkBlocksByFileName(content)).toBe([
+			"``` mpv_link ",
+			"[[1#video:/videos/a.mp4#00:00:00]]",
+			"[[3#video:/videos/b.mp4#00:00:00]]",
+			"[[2#video:/videos/c.mp4#00:00:00]]",
+			"```",
+		].join("\n"));
+	});
+
+	test("block ordering is case-insensitive", () => {
+		const content = [block("B.mp4"), block("a.mp4")].join("\n");
+		expect(sortMpvLinkBlocksByFileName(content)).toBe([block("a.mp4"), block("B.mp4")].join("\n"));
+	});
+
+	test("block ordering ignores the directory part of the path", () => {
+		const content = [
+			block("/z/b.mp4", "00:00:00", "1"),
+			block("/b/c.mp4", "00:00:00", "2"),
+			block("/c/a.mp4", "00:00:00", "3"),
+		].join("\n");
+		expect(sortMpvLinkBlocksByFileName(content)).toBe([
+			block("/c/a.mp4", "00:00:00", "3"),
+			block("/z/b.mp4", "00:00:00", "1"),
+			block("/b/c.mp4", "00:00:00", "2"),
+		].join("\n"));
+	});
+
+	// --- Preservation ---
+
+	test("preserves surrounding non-block text in place", () => {
+		const content = [
+			"# Heading",
+			"",
+			block("/videos/b.mp4"),
+			"",
+			"some prose between blocks",
+			"",
+			block("/videos/a.mp4"),
+			"The end",
+		].join("\n");
+
+		expect(sortMpvLinkBlocksByFileName(content)).toBe([
+			"# Heading",
+			"",
+			block("/videos/a.mp4"),
+			"",
+			"some prose between blocks",
+			"",
+			block("/videos/b.mp4"),
+			"The end",
+		].join("\n"));
+	});
+
+	test("preserves hash and size metadata on sorted links", () => {
+		const withMeta = "[[2#video:/videos/b.mp4#00:00:00#hash:abc#size:42]]";
+		const withoutMeta = "[[1#video:/videos/a.mp4#00:00:00]]";
+		const content = [
+			"``` mpv_link ",
+			withMeta,
+			"```",
+			"``` mpv_link ",
+			withoutMeta,
+			"```",
+		].join("\n");
+
+		expect(sortMpvLinkBlocksByFileName(content)).toBe([
+			"``` mpv_link ",
+			withoutMeta,
+			"```",
+			"``` mpv_link ",
+			withMeta,
+			"```",
+		].join("\n"));
+	});
+
+	// --- No-op cases ---
+
+	test("returns content unchanged when there are no mpv_link blocks", () => {
+		const content = "Plain text\n\n``` javascript\nfoo();\n```\nMore text";
+		expect(sortMpvLinkBlocksByFileName(content)).toBe(content);
+	});
+
+	test("returns an empty string for an empty document", () => {
+		expect(sortMpvLinkBlocksByFileName("")).toBe("");
 	});
 });
 

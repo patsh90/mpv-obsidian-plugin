@@ -4,6 +4,21 @@ import { VIDEO_EXTENSIONS_NO_DOT } from "../constants";
 
 export type PathSelectMode = "file" | "folder";
 
+function dialogProperties(mode: PathSelectMode, multiSelect: boolean): Array<"openFile" | "openDirectory" | "multiSelections"> {
+	if (mode === "folder") {
+		return ["openDirectory"];
+	}
+	if (multiSelect) {
+		return ["openFile", "multiSelections"];
+	}
+	return ["openFile"];
+}
+
+const VIDEO_FILTERS = [
+	{ name: 'Videos', extensions: VIDEO_EXTENSIONS_NO_DOT },
+	{ name: 'All Files', extensions: ['*'] },
+];
+
 export class PathSelectModal extends Modal {
 	private onSelect: (paths: string[]) => void | Promise<void>;
 	private startDirectory: string;
@@ -15,7 +30,7 @@ export class PathSelectModal extends Modal {
 		startDirectory: string,
 		mode: PathSelectMode,
 		onSelect: (paths: string[]) => void | Promise<void>,
-		multiSelect: boolean = false
+		multiSelect = false
 	) {
 		super(app);
 		this.startDirectory = startDirectory;
@@ -29,29 +44,15 @@ export class PathSelectModal extends Modal {
 	}
 
 	private async showDialog(): Promise<void> {
-		const properties: Array<"openFile" | "openDirectory" | "multiSelections"> =
-			this.mode === "folder"
-				? ["openDirectory"]
-				: this.multiSelect
-					? ["openFile", "multiSelections"]
-					: ["openFile"];
-
-		const filters = this.mode === "file"
-			? [
-				{ name: 'Videos', extensions: VIDEO_EXTENSIONS_NO_DOT },
-				{ name: 'All Files', extensions: ['*'] }
-			]
-			: undefined;
-
-		const title = this.mode === "folder"
-			? "Select folder to scan for videos"
-			: "Select video files";
+		const isFolderSelection = this.mode === "folder";
+		const filters = isFolderSelection ? undefined : VIDEO_FILTERS;
+		const title = isFolderSelection ? "Select folder to scan for videos" : "Select video files";
 
 		const result = await dialog.showOpenDialog({
 			title,
 			defaultPath: this.startDirectory,
-			properties,
-			filters
+			properties: dialogProperties(this.mode, this.multiSelect),
+			filters,
 		});
 
 		if (!result.canceled && result.filePaths.length > 0) {

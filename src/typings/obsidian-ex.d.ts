@@ -264,7 +264,7 @@ interface CustomCSS extends Component {
 	/**
 	 * @internal
 	 */
-	updates: Record<string, any>;
+	updates: Record<string, unknown>;
 
 	/**
 	 * Check whether a specific theme can be updated
@@ -339,7 +339,7 @@ interface CustomCSS extends Component {
 	/**
 	 * @internal
 	 */
-	onRaw: (e: any) => void;
+	onRaw: (e: unknown) => void;
 	/**
 	 * @internal
 	 */
@@ -392,7 +392,7 @@ interface ObsidianDOM {
 }
 
 // interface EmbedRegistry {
-// 	embedByExtension: Map<string, (e) => any>;
+// 	embedByExtension: Map<string, (e: unknown) => unknown>;
 // }
 
 interface PositionedReference extends Reference {
@@ -590,11 +590,11 @@ interface InternalPlugins extends Events {
 	/**
 	 * @internal
 	 */
-	on: (inp: any, cb: () => void, arg: string) => void;
+	on: (inp: unknown, cb: () => void, arg: string) => void;
 	/**
 	 * @internal
 	 */
-	onRaw: (cb1: any, cb2: any) => void;
+	onRaw: (cb1: unknown, cb2: unknown) => void;
 	/**
 	 * @internal - Save current plugin configs
 	 */
@@ -736,7 +736,7 @@ interface BlockCache {
 	/**
 	 * @internal
 	 */
-	cache: any;
+	cache: unknown;
 }
 
 interface FileCacheEntry {
@@ -805,13 +805,13 @@ interface PropertyWidget {
 	/**
 	 * @internal Name proxy
 	 */
-	name: any;
+	name: unknown;
 	/**
 	 * @internal Render function for the widget
 	 */
 	render: (
 		element: HTMLElement,
-		metadataField: any,
+		metadataField: unknown,
 		property: PropertyInfo
 	) => void;
 	/**
@@ -825,7 +825,7 @@ interface PropertyWidget {
 	/**
 	 * @internal Validate correctness of property input with respects to the widget
 	 */
-	validate: (value: any) => boolean;
+	validate: (value: unknown) => boolean;
 }
 
 interface MetadataTypeManager extends Events {
@@ -861,7 +861,7 @@ interface MetadataTypeManager extends Events {
 	/**
 	 * @internal Get expected widget type for property and the one inferred from the property value
 	 */
-	getTypeInfo: ({ key: string, type: string, value: any }) => {
+	getTypeInfo: ({ key: string, type: string, value: unknown }) => {
 		inferred: PropertyWidget;
 		expected: PropertyWidget;
 	};
@@ -876,7 +876,7 @@ interface MetadataTypeManager extends Events {
 	/**
 	 * @internal
 	 */
-	on: (args: any) => void;
+	on: (args: unknown) => void;
 	/**
 	 * @internal Save property types to config
 	 */
@@ -892,7 +892,7 @@ interface MetadataTypeManager extends Events {
 	/**
 	 * @internal
 	 */
-	trigger: (e: any) => void;
+	trigger: (e: unknown) => void;
 	/**
 	 * @internal Unset widget type for property
 	 */
@@ -1142,7 +1142,7 @@ interface Plugins {
 	/**
 	 * @internal
 	 */
-	onRaw: (e: any) => void;
+	onRaw: (e: unknown) => void;
 	/**
 	 * @internal - Save current plugin configs
 	 */
@@ -1511,7 +1511,7 @@ interface ViewRegistry extends Events {
 	/**
 	 * @internal
 	 */
-	on: (args: any[]) => EventRef;
+	on: (args: unknown[]) => EventRef;
 	/**
 	 * Register a view type for a file extension
 	 * @param extension File extension
@@ -1932,7 +1932,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		on: (args: any[]) => EventRef;
+		on: (args: unknown[]) => EventRef;
 		/**
 		 * @internal
 		 */
@@ -1976,7 +1976,7 @@ declare module "obsidian" {
 		 * @remark This method is device *and* vault specific
 		 * @tutorial Use load/saveLocalStorage for saving configuration data that needs to be unique to the current vault
 		 */
-		saveLocalStorage: (key: string, value: any) => void;
+		saveLocalStorage: (key: string, value: unknown) => void;
 		/**
 		 * Set the accent color of the application
 		 * @remark Also updates the CSS `--accent` variables
@@ -2052,7 +2052,7 @@ declare module "obsidian" {
 		 * @param event - Keyboard event
 		 * @param keypress - Pressed key information
 		 */
-		handleKey: (event: KeyboardEvent, keypress: KeymapInfo) => any;
+		handleKey: (event: KeyboardEvent, keypress: KeymapInfo) => unknown;
 		/**
 		 * @internal
 		 * @deprecated - Executes same functionality as `Scope.register`
@@ -2096,7 +2096,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		linkResolverQueue: any;
+		linkResolverQueue: unknown;
 		/**
 		 * @internal File hash to metadata cache entry mapping
 		 */
@@ -2104,7 +2104,7 @@ declare module "obsidian" {
 		/**
 		 * @internal Callbacks to execute on cache clean
 		 */
-		onCleanCacheCallbacks: any[];
+		onCleanCacheCallbacks: unknown[];
 		/**
 		 * @internal Mapping of filename to collection of files that share the same name
 		 */
@@ -2112,11 +2112,11 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		userIgnoreFilterCache: any;
+		userIgnoreFilterCache: unknown;
 		/**
 		 * @internal
 		 */
-		userIgnoreFilters: any;
+		userIgnoreFilters: unknown;
 		/**
 		 * @internal
 		 */
@@ -2128,7 +2128,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		workQueue: any;
+		workQueue: unknown;
 		/**
 		 * @internal
 		 */
@@ -2136,7 +2136,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		workerResolve: any;
+		workerResolve: unknown;
 
 		/**
 		 * Get all property infos of the vault
@@ -2184,11 +2184,11 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		clear: () => any;
+		clear: () => unknown;
 		/**
 		 * @internal
 		 */
-		computeMetadataAsync: (e: any) => Promise<any>;
+		computeMetadataAsync: (e: unknown) => Promise<unknown>;
 		/**
 		 * @internal Remove all entries that contain deleted path
 		 */
@@ -2208,7 +2208,7 @@ declare module "obsidian" {
 		/**
 		 * @internal Check whether string is part of the user ignore filters
 		 */
-		isUserIgnored: (filter: any) => boolean;
+		isUserIgnored: (filter: unknown) => boolean;
 		/**
 		 * Iterate over all link references in the vault with callback
 		 */
@@ -2236,7 +2236,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		onReceiveMessageFromWorker: (e: any) => void;
+		onReceiveMessageFromWorker: (e: unknown) => void;
 		/**
 		 * @internal On rename of the cache: update metadata cache
 		 */
@@ -2260,7 +2260,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		trigger: (e: any) => void;
+		trigger: (e: unknown) => void;
 		/**
 		 * @internal Re-resolve all links for changed path
 		 */
@@ -2276,7 +2276,7 @@ declare module "obsidian" {
 		/**
 		 * @internal Send message to worker to update metadata cache
 		 */
-		work: (cacheEntry: any) => void;
+		work: (cacheEntry: unknown) => void;
 	}
 
 	interface SettingTab {
@@ -2424,7 +2424,7 @@ declare module "obsidian" {
 		 * @internal
 		 * @param callback - Callback to execute for each link
 		 */
-		runAsyncLinkUpdate: (callback: (link: LinkUpdate) => any) => void;
+		runAsyncLinkUpdate: (callback: (link: LinkUpdate) => unknown) => void;
 		/**
 		 * @internal
 		 * @param path
@@ -2442,28 +2442,28 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		updateAllLinks: (links: any[]) => Promise<void>;
+		updateAllLinks: (links: unknown[]) => Promise<void>;
 		/**
 		 * @internal
 		 */
-		updateInternalLinks: (data: any) => any;
+		updateInternalLinks: (data: unknown) => unknown;
 
 		/**
 		 * @internal
 		 */
-		fileParentCreatorByType: Map<string, (e) => any>;
+		fileParentCreatorByType: Map<string, (e: unknown) => unknown>;
 		/**
 		 * @internal
 		 */
-		inProgressUpdates: null | any[];
+		inProgressUpdates: null | unknown[];
 		/**
 		 * @internal
 		 */
-		linkUpdaters: Map<string, (e) => any>;
+		linkUpdaters: Map<string, (e: unknown) => unknown>;
 		/**
 		 * @internal
 		 */
-		updateQueue: Map<string, (e) => any>;
+		updateQueue: Map<string, (e: unknown) => unknown>;
 		/**
 		 * Reference to Vault
 		 */
@@ -2640,7 +2640,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		promise: Promise<any>;
+		promise: Promise<unknown>;
 		/**
 		 * Reference to node URL module
 		 */
@@ -2648,11 +2648,11 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		watcher: any;
+		watcher: unknown;
 		/**
 		 * @internal
 		 */
-		watchers: Record<string, { resolvedPath: string; watcher: any }>;
+		watchers: Record<string, { resolvedPath: string; watcher: unknown }>;
 
 		/**
 		 * @internal Apply data write options to file
@@ -2723,7 +2723,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		queue: (cb: any) => Promise<void>;
+		queue: (cb: unknown) => Promise<void>;
 
 		/**
 		 * @internal
@@ -2805,7 +2805,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		update: (normalizedPath: string) => any;
+		update: (normalizedPath: string) => unknown;
 		/**
 		 * @internal Add change watcher to path
 		 */
@@ -2828,7 +2828,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		backlinkInDocument?: any;
+		backlinkInDocument?: unknown;
 		/**
 		 * Registered CodeMirror editor extensions, to be applied to all CM instances
 		 */
@@ -2837,8 +2837,8 @@ declare module "obsidian" {
 		 * @internal
 		 */
 		editorSuggest: {
-			currentSuggest?: EditorSuggest<any>;
-			suggests: EditorSuggest<any>[];
+			currentSuggest?: EditorSuggest<unknown>;
+			suggests: EditorSuggest<unknown>[];
 		};
 		/**
 		 * @internal
@@ -2859,7 +2859,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		layoutItemQueue: any[];
+		layoutItemQueue: unknown[];
 		/**
 		 * Workspace has finished loading
 		 */
@@ -2871,11 +2871,11 @@ declare module "obsidian" {
 		/**
 		 * @internal Array of renderCallbacks
 		 */
-		mobileFileInfos: any[];
+		mobileFileInfos: unknown[];
 		/**
 		 * @internal
 		 */
-		onLayoutReadyCallbacks?: any;
+		onLayoutReadyCallbacks?: unknown;
 		/**
 		 * Protocol handlers registered on the workspace
 		 */
@@ -2904,7 +2904,7 @@ declare module "obsidian" {
 		/**
 		 * @internal Add file to mobile file info
 		 */
-		addMobileFileInfo: (file: any) => void;
+		addMobileFileInfo: (file: unknown) => void;
 		/**
 		 * @internal Clear layout of workspace and destruct all leaves
 		 */
@@ -3008,7 +3008,7 @@ declare module "obsidian" {
 		 */
 		iterateLeaves: (
 			split: WorkspaceSplit,
-			callback: (leaf: WorkspaceLeaf) => any
+			callback: (leaf: WorkspaceLeaf) => unknown
 		) => void;
 		/**
 		 * Iterate the tabs of a split till meeting a condition
@@ -3024,7 +3024,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		on: (args: any[]) => EventRef;
+		on: (args: unknown[]) => EventRef;
 		/**
 		 * @internal Handles drag event on leaf
 		 */
@@ -3036,11 +3036,11 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		onLinkContextMenu: (args: any[]) => void;
+		onLinkContextMenu: (args: unknown[]) => void;
 		/**
 		 * @internal
 		 */
-		onQuickPreview: (args: any[]) => void;
+		onQuickPreview: (args: unknown[]) => void;
 		/**
 		 * @internal
 		 */
@@ -3132,7 +3132,7 @@ declare module "obsidian" {
 		/**
 		 * @internal
 		 */
-		trigger: (e: any) => void;
+		trigger: (e: unknown) => void;
 		/**
 		 * @internal Unregister a CodeMirror editor extension
 		 */
@@ -3189,7 +3189,7 @@ declare module "obsidian" {
 		 */
 		fileMap: Record<string, TAbstractFile>;
 
-		on(name: "config-changed", callback: () => void, ctx?: any): EventRef;
+		on(name: "config-changed", callback: () => void, ctx?: unknown): EventRef;
 
 		/**
 		 * @internal Add file as child/parent to respective folders
@@ -3238,7 +3238,7 @@ declare module "obsidian" {
 		 * @remark Default value will be selected if config value was not manually changed
 		 * @param key Key of config value
 		 */
-		getConfig: (string: ConfigItem) => any;
+		getConfig: (string: ConfigItem) => unknown;
 		/**
 		 * Get path to config file (relative to vault root)
 		 */
@@ -3263,7 +3263,7 @@ declare module "obsidian" {
 		/**
 		 * @internal Listener for all events on the vault
 		 */
-		onChange: (eventType: string, path: string, x: any, y: any) => void;
+		onChange: (eventType: string, path: string, x: unknown, y: unknown) => void;
 		/**
 		 * Read a config file from the vault and parse it as JSON
 		 * @param config Name of config file
@@ -3315,7 +3315,7 @@ declare module "obsidian" {
 		 * @param key Key of config value
 		 * @param value Value to set
 		 */
-		setConfig: (key: ConfigItem, value: any) => void;
+		setConfig: (key: ConfigItem, value: unknown) => void;
 		/**
 		 * Set where the config files are stored (relative to vault root)
 		 * @param configDir Path to config files
@@ -3567,7 +3567,7 @@ declare module "obsidian" {
 		/**
 		 * Context applied to the event callback
 		 */
-		ctx?: any;
+		ctx?: unknown;
 
 		/**
 		 * Events object the event was registered on
@@ -3606,9 +3606,9 @@ interface ReadViewRenderer {
 	set: (text: string) => void;
 	text: string;
 	sections: RendererSection[];
-	asyncSections: any[];
-	recycledSections: any[];
-	rendered: any[];
+	asyncSections: unknown[];
+	recycledSections: unknown[];
+	rendered: unknown[];
 }
 
 interface CMState extends EditorState {
